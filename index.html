@@ -13,6 +13,7 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/style.css">
+  <script src="lib/peerjs.min.js" defer></script>
 </head>
 <body>
   <canvas id="gl"></canvas>
@@ -116,7 +117,18 @@
         <label class="chk"><input type="checkbox" id="cFF" checked> Friendly fire (teamkills are punished)</label>
       </div>
 
-      <h3 class="sec">Play as</h3>
+      <h3 class="sec">Play with friends</h3>
+      <div class="mp">
+        <label class="field">Your name <input id="mpName" maxlength="16" autocomplete="nickname"></label>
+        <button id="mpHost" class="menu-btn">Host a game</button>
+        <div class="mp-join">
+          <input id="mpCode" placeholder="Room code" maxlength="5" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Room code">
+          <button id="mpJoin" class="menu-btn ghost">Join</button>
+        </div>
+      </div>
+      <p id="mpStatus" class="tip" role="status"></p>
+
+      <h3 class="sec">Play solo with bots</h3>
       <div class="row">
         <button class="team-btn t" data-team="T"><b>Terrorists</b><small>Plant the bomb at A or B</small></button>
         <button class="team-btn ct" data-team="CT"><b>Counter-Terrorists</b><small>Defend the sites, defuse</small></button>
@@ -148,6 +160,29 @@
         <p><b>Friendly fire:</b> bullets and grenades hurt teammates (half damage). Kill one and you lose your guns: knife only, no buying and no money for the next 2 rounds.</p>
       </details>
       <p id="installHint" class="tip"></p>
+    </div>
+  </div>
+
+  <!-- ===== Multiplayer lobby ===== -->
+  <div id="lobby" class="overlay hidden">
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>Lobby</h2>
+        <span id="lbCode" class="room-code"></span>
+        <button id="lbCopy" class="menu-btn ghost chip-btn">Copy invite link</button>
+        <button id="lbLeave" class="x" aria-label="Leave lobby">✕</button>
+      </div>
+      <p id="lbInfo" class="tip"></p>
+      <div class="lb-teams">
+        <div class="lb-team t"><h3>Terrorists</h3><ul id="lbT"></ul><button class="menu-btn ghost" data-join="T">Join Terrorists</button></div>
+        <div class="lb-team ct"><h3>Counter-Terrorists</h3><ul id="lbCT"></ul><button class="menu-btn ghost" data-join="CT">Join Counter-Terrorists</button></div>
+      </div>
+      <div id="lbHost" class="lb-host">
+        <label class="field">Map <select id="lbMap"></select></label>
+        <label class="chk"><input type="checkbox" id="lbBots" checked> Fill empty slots with bots</label>
+        <button id="lbStart" class="menu-btn">Start match</button>
+      </div>
+      <p id="lbWait" class="tip">Waiting for the host to start the match…</p>
     </div>
   </div>
 
@@ -186,6 +221,7 @@
       <h1 id="overTitle">Victory</h1>
       <p id="overScore" class="tag"></p>
       <button id="again" class="menu-btn">Play again</button>
+      <p id="overWait" class="tip hidden">Waiting for the host…</p>
       <button id="toMenu" class="menu-btn ghost">Main menu</button>
     </div>
   </div>

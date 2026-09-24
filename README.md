@@ -1,6 +1,6 @@
 # Cam-Strike
 
-A tactical first-person shooter in the spirit of Counter-Strike, built to run in a mobile browser (Android Chrome) and installable as an app. No build step and no downloads beyond the page itself: plain HTML + JavaScript modules + [three.js](https://threejs.org) (vendored in `lib/`, so it also works offline).
+A tactical first-person shooter in the spirit of Counter-Strike, built to run in a mobile browser (Android Chrome) and installable as an app. Play solo against bots or online with friends. No build step and no downloads beyond the page itself: plain HTML + JavaScript modules + [three.js](https://threejs.org) (vendored in `lib/`, so it also works offline).
 
 ## Game modes
 
@@ -10,6 +10,23 @@ A tactical first-person shooter in the spirit of Counter-Strike, built to run in
 You play one of the players; every other slot is a bot.
 
 **Terrorists** win a round by planting the bomb at **site A or B** and letting it detonate (40s), or by eliminating every Counter-Terrorist. **Counter-Terrorists** win by defusing the bomb (10s, 5s with a kit), eliminating the Terrorists before they plant, or running out the clock.
+
+## Online multiplayer (play with friends)
+
+1. Open the game and type your name under **Play with friends**.
+2. One person taps **Host a game**. They get a 5-letter **room code** and a **Copy invite link** button to send to friends.
+3. Friends open the invite link (or type the code and tap **Join**). Everyone picks a team in the lobby.
+4. The host picks the map, chooses whether bots fill the empty slots, and taps **Start match**. The mode and rules come from the host's menu (Competitive or Custom).
+
+Up to 10 people can play together, and bots fill the rest of each team if you like. After the match the host can take everyone **back to the lobby** for a rematch. If a friend drops out mid-match, a bot takes over their player.
+
+How it works: it's peer-to-peer over WebRTC ([PeerJS](https://peerjs.com), vendored in `lib/`). There's no game server to run. The host's device runs the real match (bots, damage, money, rounds). Each friend's device predicts their own movement and shots so controls feel instant, and draws everyone else slightly behind (interpolation). Hits from friends are lag-compensated on the host. PeerJS's free public server only introduces the players to each other. Game traffic goes directly between devices, or through PeerJS's free relay when a mobile network blocks direct connections.
+
+Things to know:
+- The host must keep the game open in the foreground. If the host switches apps, the match freezes for everyone, and if the host leaves, the match ends.
+- Movement is trusted from each player's device, so it's meant for friends, not strangers.
+- Online play needs the hosted version (GitHub Pages or any web server), not a local `file://` copy.
+- For testing with your own signaling server, add `?peer=host:port` to the URL. It points the game at a self-hosted [PeerJS server](https://github.com/peers/peerjs-server).
 
 ## Maps
 
@@ -96,7 +113,9 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
 | `js/hud.js`, `js/layout.js`, `js/loadout.js` | HUD and buy menu, adaptive and editable touch layout, loadout screen |
+| `js/net.js` | Online play: host and client over PeerJS, lobby, snapshots, events, pings |
+| `js/netgame.js` | A friend's copy of the match: local prediction, interpolation, applying host snapshots and events |
 | `js/input.js`, `js/audio.js`, `js/effects.js` | Touch/keyboard/mouse input, synthesized sounds, tracers and impacts |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 is vendored under the MIT license (`lib/three.LICENSE`).
+three.js r170 and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`).

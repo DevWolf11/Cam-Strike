@@ -44,8 +44,28 @@ function randomLoadout() {
   return { skins, knifeType: pick(KNIVES).id, knifeSkin: Math.random() < 0.6 ? pick(SKINS).id : 'factory' };
 }
 
+// Who plays: humans first (host/local + friends), then bots to fill each side.
+// humans: [{ name, team, outfit, loadout, local, pid }]
+export function buildRoster(opts, humans = null) {
+  const custom = opts.mode === 'custom';
+  humans ||= [{ name: 'You', team: opts.team, outfit: opts.outfit?.[opts.team] ?? 0, loadout: opts.loadout || {}, local: true }];
+  const want = custom ? { T: opts.tCount, CT: opts.ctCount } : { T: RULES.playersPerTeam, CT: RULES.playersPerTeam };
+  const roster = [];
+  for (const team of ['T', 'CT']) {
+    const hs = humans.filter((h) => h.team === team);
+    for (const h of hs) roster.push({ name: h.name, team, bot: false, local: !!h.local, pid: h.pid || null, outfit: (typeof h.outfit === 'object' ? h.outfit?.[team] : h.outfit) ?? 0, loadout: h.loadout || {} });
+    const nBots = opts.fillBots === false ? 0 : Math.max(0, want[team] - hs.length);
+    const names = shuffle([...BOT_NAMES[team]]);
+    for (let i = 0; i < nBots; i++) {
+      const name = i < names.length ? names[i] : `${names[i % names.length]} ${Math.floor(i / names.length) + 1}`;
+      roster.push({ name: humans.length > 1 ? `BOT ${name}` : name, team, bot: true, local: false, outfit: Math.floor(Math.random() * OUTFITS[team].length), loadout: randomLoadout() });
+    }
+  }
+  return roster;
+}
+
 export class Game {
-  // opts: { team, difficulty, mode, map, tCount, ctCount, roundsToWin, startMoney, friendlyFire, roundTime, loadout, outfit, quality }
+  // opts: { team, difficulty, mode, map, tCount, ctCount, roundsToWin, startMoney, friendlyFire, roundTime, loadout, outfit, quality, roster }
   constructor(scene, camera, opts) {
     this.scene = scene; this.camera = camera; this.opts = opts;
     this.rules = { ...RULES };
@@ -53,7 +73,6 @@ export class Game {
     if (custom) {
       for (const k of ['roundsToWin', 'startMoney', 'friendlyFire', 'roundTime']) if (opts[k] !== undefined) this.rules[k] = opts[k];
     }
-    this.counts = custom ? { T: opts.tCount, CT: opts.ctCount } : { T: RULES.playersPerTeam, CT: RULES.playersPerTeam };
     this.diff = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
     this.mapDef = getMap(opts.map || 'dust2');
     W.setMap(this.mapDef);
@@ -64,16 +83,15 @@ export class Game {
     this.time = 0;
     this.agents = [];
     const money = this.rules.startMoney;
-    this.player = new Agent(scene, 'You', opts.team, false, { outfit: opts.outfit?.[opts.team] ?? 0, loadout: opts.loadout || {}, money });
-    this.agents.push(this.player);
-    for (const team of ['T', 'CT']) {
-      const names = shuffle([...BOT_NAMES[team]]);
-      const n = this.counts[team] - (team === opts.team ? 1 : 0);
-      for (let i = 0; i < n; i++) {
-        const name = i < names.length ? names[i] : `${names[i % names.length]} ${Math.floor(i / names.length) + 1}`;
-        this.agents.push(new Agent(scene, name, team, true, { outfit: Math.floor(Math.random() * OUTFITS[team].length), loadout: randomLoadout(), money }));
-      }
-    }
+    this.roster = opts.roster || buildRoster(opts);
+    this.roster.forEach((r, nid) => {
+      const a = new Agent(scene, r.name, r.team, r.bot, { outfit: r.outfit, loadout: r.loadout, money });
+      a.nid = nid; a.pid = r.pid; a.human = !r.bot; a.remote = !r.bot && !r.local;
+      this.agents.push(a);
+      if (r.local) this.player = a;
+    });
+    this.player ||= this.agents[0];
+    this.counts = { T: this.teamOf('T').length, CT: this.teamOf('CT').length };
     this.score = { T: 0, CT: 0 };
     this.lossStreak = { T: 0, CT: 0 };
     this.round = 0; this.phase = 'freeze'; this.timer = 0; this.matchWinner = null;
@@ -251,7 +269,8 @@ export class Game {
     const inv = a.inv[a.weapon], w = a.w;
     if (!inv || a.reloadT > 0 || inv.mag >= w.mag || inv.reserve <= 0) return false;
     a.reloadT = w.reload; a.scoped = false;
-    if (a === this.player) { SFX.reload(); this.emit('reload'); }
+    if (a === this.player) SFX.reload();
+    if (a.human) this.emit('reload', { agent: a });
     return true;
   }
   finishReload(a) {
@@ -269,9 +288,10 @@ export class Game {
 
   busy(a) { return (this.bomb.planter === a && this.bomb.plantP > 0) || (this.bomb.defuser === a && this.bomb.defuseP > 0); }
 
-  fire(a, power = 1) {
+  // aim: optional {yaw, pitch} sent by a remote player; rewind: host time to evaluate targets at (lag compensation)
+  fire(a, power = 1, aim = null, rewind = null) {
     if (!a.alive || this.phase === 'freeze' || this.phase === 'over') return false;
-    if (a.fireCd > 0 || a.reloadT > 0 || a.throwing || this.busy(a)) return false;
+    if (a.fireCd > (a.remote ? 0.08 : 0) || a.reloadT > 0 || a.throwing || this.busy(a)) return false;
     if (a.weapon === 'knife') return this.melee(a);
     if (a.weapon === 'nade') return this.throwNade(a, power);
     const inv = a.inv[a.weapon], w = a.w;
@@ -285,14 +305,16 @@ export class Game {
     a.fireCd = 60 / w.rpm;
     const spread = this.spreadOf(a);
     _o.set(a.pos.x, a.eyeY, a.pos.z);
-    const baseYaw = a.yaw + a.recoilY, basePitch = a.pitch + a.recoilP;
+    const baseYaw = aim ? aim.yaw : a.yaw + a.recoilY, basePitch = aim ? aim.pitch : a.pitch + a.recoilP;
     const muzzle = this.muzzlePos(a, new THREE.Vector3());
     let anyHit = false, anyHead = false, anyTeam = false;
+    const ends = [];
     for (let p = 0; p < w.pellets; p++) {
       const r = spread * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2;
       aimDir(baseYaw + Math.cos(th) * r, basePitch + Math.sin(th) * r, _d);
-      const hit = this.traceShot(a, _o, _d, 250);
+      const hit = this.traceShot(a, _o, _d, 250, rewind);
       const end = _v.copy(_o).addScaledVector(_d, hit.dist);
+      if (p < 3) ends.push([+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2), hit.agent ? 1 : hit.dist < 250 ? (hit.ny ? 2 : 3) : 0]);
       if (hit.agent) {
         this.effects.puff(end, 0x9a1010, 0.25, 0.3, 0.2);
         const imp = _d.clone().multiplyScalar(w.impulse || 2);
@@ -310,10 +332,11 @@ export class Game {
     a.sprayIdx++;
     a.lastShot = this.time;
     this.effects.flash(muzzle, w.id === 'shotgun' || w.id === 'sniper' ? 0.7 : 0.45);
+    if (a.human) this.emit('shot', { agent: a, hit: anyHit, head: anyHead, team: anyTeam });
+    this.emit('fxShot', { a, weapon: w.id, muzzle: [+muzzle.x.toFixed(2), +muzzle.y.toFixed(2), +muzzle.z.toFixed(2)], ends });
     if (a === this.player) {
       SFX.gunshot(w.id, 0, 0);
       if (anyHit && !anyTeam) anyHead ? SFX.headshot() : SFX.hitmarker();
-      this.emit('shot', { hit: anyHit, head: anyHead, team: anyTeam });
     } else {
       const s = this.soundFrom(a.pos);
       SFX.gunshot(w.id, s.dist, s.pan);
@@ -347,8 +370,9 @@ export class Game {
       this.effects.puff(_v.set(best.pos.x, best.pos.y + 1.2, best.pos.z), 0x9a1010, 0.3, 0.3, 0.2);
       SFX.knifeHit();
       this.applyDamage(best, a, 'knife', backstab ? w.backstab : w.damage, false, _d.clone().multiplyScalar(w.impulse));
-      if (a === this.player) this.emit('shot', { hit: true, head: backstab, team: best.team === a.team });
+      if (a.human) this.emit('shot', { agent: a, hit: true, head: backstab, team: best.team === a.team });
     }
+    this.emit('fxMelee', { a });
     this.noise(a, 6);
     return true;
   }
@@ -368,18 +392,30 @@ export class Game {
     return w.damage * f;
   }
 
-  traceShot(shooter, o, d, maxDist) {
+  // Where was agent b at host time t? (for lag-compensated hit detection)
+  posAt(b, t) {
+    const h = b.hist;
+    if (t == null || !h || h.length < 2 || t >= h[h.length - 1][0]) return b.pos;
+    let i = h.length - 1;
+    while (i > 0 && h[i - 1][0] > t) i--;
+    if (i === 0) return { x: h[0][1], y: h[0][2], z: h[0][3] };
+    const A = h[i - 1], B = h[i], k = (t - A[0]) / Math.max(1e-6, B[0] - A[0]);
+    return { x: A[1] + (B[1] - A[1]) * k, y: A[2] + (B[2] - A[2]) * k, z: A[3] + (B[3] - A[3]) * k };
+  }
+
+  traceShot(shooter, o, d, maxDist, rewind = null) {
     const wall = W.raycast(o.x, o.y, o.z, d.x, d.y, d.z, maxDist);
     let best = wall.dist, agent = null, head = false;
     const ff = this.rules.friendlyFire;
     for (const b of this.agents) {
       if (!b.alive || b === shooter || (b.team === shooter.team && !ff)) continue;
-      const dx = b.pos.x - o.x, dz = b.pos.z - o.z, along = dx * d.x + dz * d.z;
+      const bp = rewind != null ? this.posAt(b, rewind) : b.pos;
+      const dx = bp.x - o.x, dz = bp.z - o.z, along = dx * d.x + dz * d.z;
       if (along < -1 || along > best + 1) continue;
-      _v.set(b.pos.x, b.pos.y + PLAYER.headY, b.pos.z);
+      _v.set(bp.x, bp.y + PLAYER.headY, bp.z);
       let t = raySphere(o, d, _v, PLAYER.headRadius);
       if (t < best) { best = t; agent = b; head = true; }
-      t = rayAABB(o, d, b.pos.x - PLAYER.bodyHalf, b.pos.y, b.pos.z - PLAYER.bodyHalf, b.pos.x + PLAYER.bodyHalf, b.pos.y + PLAYER.bodyTop, b.pos.z + PLAYER.bodyHalf);
+      t = rayAABB(o, d, bp.x - PLAYER.bodyHalf, bp.y, bp.z - PLAYER.bodyHalf, bp.x + PLAYER.bodyHalf, bp.y + PLAYER.bodyTop, bp.z + PLAYER.bodyHalf);
       if (t < best) { best = t; agent = b; head = false; }
     }
     return { dist: best, agent, head, ny: agent ? 0 : wall.ny };
@@ -402,8 +438,9 @@ export class Game {
     dmg = Math.max(1, Math.round(dmg));
     victim.hp -= dmg;
     victim.lastImpulse = impulse;
-    if (victim === this.player) { SFX.hurt(); this.emit('hurt', { from: attacker, dmg }); }
-    if (ff && attacker === this.player) this.emit('msg', { text: `You hit teammate ${victim.name}!`, warn: true });
+    if (victim === this.player) SFX.hurt();
+    if (victim.human) this.emit('hurt', { agent: victim, from: attacker, dmg });
+    if (ff && attacker.human) this.emit('msg', { text: `You hit teammate ${victim.name}!`, warn: true, to: attacker });
     if (victim.isBot && attacker && attacker.team !== victim.team) {
       victim.ai.heard = { x: attacker.pos.x, z: attacker.pos.z, t: this.time };
       victim.ai.hurtBy = attacker;
@@ -439,7 +476,7 @@ export class Game {
       this.bombMesh.visible = true; this.bombMesh.position.copy(this.bomb.pos).setY(this.bomb.pos.y + 0.06);
       this.emit('msg', { text: 'The bomb has been dropped!', team: 'T' });
     }
-    this.emit('kill', { killer: attacker, victim, weapon: weaponId, head, teamkill });
+    this.emit('kill', { killer: attacker, victim, weapon: weaponId, head, teamkill, impulse: impulse ? [impulse.x, impulse.y, impulse.z] : [0, 0, 0] });
   }
 
   // ---------------- Bomb ----------------
@@ -566,6 +603,17 @@ export class Game {
 
     this.pathBudget = 2;
     for (const a of this.agents) if (a.isBot) updateBot(a, this, dt);
+    // remote players hold "use" to plant/defuse; their movement arrives via applyRemoteState
+    if (this.phase !== 'freeze') for (const a of this.agents) {
+      if (!a.remote || !a.alive || !a.useHeld) continue;
+      if (this.plantSite(a)) this.tryPlant(a, dt); else if (this.canDefuse(a)) this.tryDefuse(a, dt);
+    }
+    if (this.hasRemotes) for (const a of this.agents) {
+      if (!a.alive) continue;
+      const h = a.hist || (a.hist = []);
+      h.push([this.time, a.pos.x, a.pos.y, a.pos.z]);
+      while (h.length > 2 && h[0][0] < this.time - 1) h.shift();
+    }
 
     // keep agents from overlapping
     const al = this.agents.filter((a) => a.alive);
@@ -607,6 +655,43 @@ export class Game {
     }
     if (b.state === 'dropped') this.bombMesh.rotation.y += dt;
     this.effects.update(dt);
+  }
+
+  // ---------------- Remote players (host side) ----------------
+  get hasRemotes() { return this.agents.some((a) => a.remote); }
+
+  // Movement is client-authoritative (it's a game between friends); everything else is decided here.
+  applyRemoteState(a, st) {
+    if (!a.remote || !a.alive || st.seq !== a.spawnSeq) return;
+    if (this.phase !== 'freeze') {
+      a.pos.set(st.p[0], st.p[1], st.p[2]);
+      a.vx = st.v[0]; a.vz = st.v[1]; a.vy = st.v[2]; a.onGround = !!st.g;
+      a.speed = Math.hypot(a.vx, a.vz); a.moving = Math.max(0, Math.min(1, (a.speed - 1.4) / 3.6));
+    }
+    a.yaw = st.yaw; a.pitch = st.pitch; a.scoped = !!st.sc; a.useHeld = !!st.use;
+    if (st.w && (st.w !== a.weapon || (st.w === 'nade' && st.ns !== a.nadeSel)) && !a.throwing) {
+      if (a.equip(st.w, st.ns)) a.fireCd = Math.min(a.fireCd, 0.05);
+    }
+  }
+
+  remoteAction(a, act, latency = 0.08) {
+    if (!a.remote) return;
+    switch (act.a) {
+      case 'fire':
+        if (act.w && act.w !== a.weapon && a.has(act.w)) { a.equip(act.w, act.ns); a.fireCd = 0; }
+        if (act.w === 'nade' || a.weapon === 'nade' || a.weapon === 'knife') { a.yaw = act.yaw; a.pitch = act.pitch; }
+        this.fire(a, act.power ?? 1, { yaw: act.yaw, pitch: act.pitch }, this.time - Math.min(0.3, latency + 0.1));
+        break;
+      case 'reload': this.reload(a); break;
+      case 'buy': if (this.canBuyAgent(a)) this.buy(a, act.item); break;
+      case 'fall': if (a.alive && act.dmg > 0) this.applyDamage(a, null, 'fall', Math.min(200, act.dmg), false, null); break;
+    }
+  }
+
+  // A friend disconnected: a bot takes over their player
+  botify(a) {
+    a.remote = false; a.human = false; a.isBot = true; a.name += ' (bot)';
+    initBotRound(a, this);
   }
 
   dispose() {

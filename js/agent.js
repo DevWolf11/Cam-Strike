@@ -84,6 +84,7 @@ export class Agent {
     this.fireCd = 0; this.reloadT = 0; this.sprayIdx = 0; this.scoped = false; this.spotted = 0;
     this.recoilP = this.recoilY = 0; this.actionT = 0; this.blindT = 0; this.autoReload = 0;
     this.char.visible = true;
+    this.spawnSeq = (this.spawnSeq || 0) + 1;
   }
 
   // Strip to knife only (teamkill punishment)

@@ -142,7 +142,8 @@ export class Character {
   constructor(scene, team, outfitIndex = 0) {
     this.scene = scene;
     const list = OUTFITS[team];
-    this.outfit = list[((outfitIndex % list.length) + list.length) % list.length];
+    const i = Number.isFinite(+outfitIndex) ? +outfitIndex : 0;
+    this.outfit = list[((i % list.length) + list.length) % list.length];
     this.group = new THREE.Group();
     this.limbs = LIMBS.map(([name, a, b, len]) => {
       const mesh = new THREE.Mesh(limbGeo(name, this.outfit), MAT);

@@ -35,8 +35,8 @@ export class PlayerController {
     this.sleeveMat = new THREE.MeshLambertMaterial({ color: o.sleeve });
     this.gloveMat = new THREE.MeshLambertMaterial({ color: o.gloves });
     this.cuffMat = new THREE.MeshLambertMaterial({ color: o.vest });
-    game.on((type) => {
-      if (type === 'shot') this.kick = 1;
+    game.on((type, d) => {
+      if (type === 'shot' && d.agent === game.player && !d.confirm) this.kick = 1;
       if (type === 'roundStart') { this.setSpectate(null); this.deathT = 0; }
     });
   }
