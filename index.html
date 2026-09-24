@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#14110d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Cam-Strike: a 5v5 tactical first-person shooter with bomb defusal that runs in the browser and on Android.">
+  <title>Cam-Strike</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+    <canvas id="minimap" width="300" height="300"></canvas>
+    <div id="money">$800</div>
+    <div id="scorebar">
+      <div class="team t"><span class="alive" id="aliveT"></span><b id="scoreT">0</b></div>
+      <div id="timer">1:55</div>
+      <div class="team ct"><b id="scoreCT">0</b><span class="alive" id="aliveCT"></span></div>
+    </div>
+    <div id="bombTimer" class="hidden">💣 <span></span></div>
+    <div id="killfeed"></div>
+    <div id="center-msg"></div>
+    <div id="sub-msg"></div>
+    <div id="hint"></div>
+    <div id="progress" class="hidden"><div class="label"></div><div class="bar"><div></div></div></div>
+    <div id="crosshair"><i class="l"></i><i class="r"></i><i class="u"></i><i class="d"></i><i class="dot"></i></div>
+    <div id="hitmarker"></div>
+    <div id="vitals">
+      <div class="hp"><span class="ico">✚</span><b id="hp">100</b></div>
+      <div class="armor"><span class="ico">⛨</span><b id="armor">0</b></div>
+      <div id="bombIcon" class="hidden">💣</div>
+      <div id="kitIcon" class="hidden">🔧</div>
+    </div>
+    <div id="ammo"><b id="mag">12</b><span>/</span><span id="reserve">48</span><div id="wname">P-9 Pistol</div></div>
+    <div id="weapons"></div>
+    <div id="spectating" class="hidden"></div>
+    <div id="dmg-vignette"></div>
+    <div id="dmg-dir"></div>
+    <div id="scope" class="hidden"><div class="hole"></div><i class="h"></i><i class="v"></i></div>
+  </div>
+
+  <!-- ===== Touch controls ===== -->
+  <div id="touch" class="hidden">
+    <div id="stick"><div id="knob"></div></div>
+    <button data-btn="fire" id="btnFire" class="tbtn big"><svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
+    <button data-btn="fireL" id="btnFireL" class="tbtn"><svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
+    <button data-btn="jump" id="btnJump" class="tbtn">⤒</button>
+    <button data-btn="reload" id="btnReload" class="tbtn">R</button>
+    <button data-btn="scope" id="btnScope" class="tbtn hidden">◎</button>
+    <button data-btn="use" id="btnUse" class="tbtn hidden">USE</button>
+    <button data-btn="buy" id="btnBuy" class="tbtn small hidden">BUY</button>
+    <button data-btn="score" id="btnScore" class="tbtn small">☰</button>
+    <button data-btn="pause" id="btnPause" class="tbtn small">❚❚</button>
+  </div>
+
+  <!-- ===== Buy menu ===== -->
+  <div id="buy" class="overlay hidden">
+    <div class="panel">
+      <div class="panel-head"><h2>Buy Menu</h2><span id="buyMoney">$0</span><button id="buyClose" class="x">✕</button></div>
+      <div id="buyGrid"></div>
+      <p class="tip">Buying is allowed in your spawn zone at the start of the round.</p>
+    </div>
+  </div>
+
+  <!-- ===== Scoreboard ===== -->
+  <div id="scoreboard" class="overlay hidden">
+    <div class="panel wide">
+      <div class="panel-head"><h2>Scoreboard</h2><span id="sbRound"></span><button id="sbClose" class="x">✕</button></div>
+      <div class="sb-cols"><div id="sbT"></div><div id="sbCT"></div></div>
+    </div>
+  </div>
+
+  <!-- ===== Pause ===== -->
+  <div id="pause" class="overlay hidden">
+    <div class="panel">
+      <h2>Paused</h2>
+      <label>Look sensitivity <input type="range" id="pauseSens" min="0.3" max="2.5" step="0.05"></label>
+      <button id="resume" class="menu-btn">Resume</button>
+      <button id="quit" class="menu-btn ghost">Quit to menu</button>
+    </div>
+  </div>
+
+  <!-- ===== Main menu ===== -->
+  <div id="menu" class="overlay">
+    <div class="menu-box">
+      <h1>CAM<span>·</span>STRIKE</h1>
+      <p class="tag">5v5 · Bomb Defusal · Sandstone</p>
+      <div class="row">
+        <button class="team-btn t" data-team="T"><b>Terrorists</b><small>Plant the bomb at A or B</small></button>
+        <button class="team-btn ct" data-team="CT"><b>Counter-Terrorists</b><small>Defend the sites, defuse</small></button>
+      </div>
+      <div class="row opts">
+        <label>Bots
+          <select id="difficulty">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+        <label>Graphics
+          <select id="quality">
+            <option value="low">Low (fast)</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label class="chk"><input type="checkbox" id="aimAssist" checked> Aim assist (touch)</label>
+      </div>
+      <label class="sens">Look sensitivity <input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="1"></label>
+      <details class="help">
+        <summary>How to play</summary>
+        <p><b>Goal:</b> first team to 8 rounds. Terrorists win a round by detonating the bomb at site A or B or eliminating all Counter-Terrorists. Counter-Terrorists win by defusing the bomb, eliminating the Terrorists before a plant, or running out the clock.</p>
+        <p><b>Touch:</b> left thumb = move (joystick appears where you touch). Drag anywhere on the right = look. The big crosshair button fires and can also be dragged to aim while shooting. Hold <b>USE</b> on a site to plant (3s) or near the bomb to defuse (10s, 5s with kit).</p>
+        <p><b>Keyboard:</b> WASD move, mouse look, click fire, right-click scope, R reload, E plant/defuse (hold), Space jump, Shift walk, 1/2/Q weapons, B buy, Tab scoreboard, Esc pause.</p>
+        <p><b>Tip:</b> stop moving before you shoot. Running ruins accuracy, just like the real thing.</p>
+      </details>
+      <p id="installHint" class="tip"></p>
+    </div>
+  </div>
+
+  <!-- ===== Match over ===== -->
+  <div id="over" class="overlay hidden">
+    <div class="menu-box">
+      <h1 id="overTitle">Victory</h1>
+      <p id="overScore" class="tag"></p>
+      <button id="again" class="menu-btn">Play again</button>
+    </div>
+  </div>
+
+  <div id="rotate" class="hidden"><div>↻</div><p>Rotate your device to landscape</p></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
