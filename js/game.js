@@ -293,7 +293,8 @@ export class Game {
   // aim: optional {yaw, pitch} sent by a remote player; rewind: host time to evaluate targets at (lag compensation)
   fire(a, power = 1, aim = null, rewind = null) {
     if (!a.alive || this.phase === 'freeze' || this.phase === 'over') return false;
-    if (a.fireCd > (a.remote ? 0.08 : 0) || a.reloadT > 0 || a.throwing || this.busy(a)) return false;
+    // Remote shots can arrive bunched by network jitter: allow one queued shot, but keep the average rate (see below)
+    if (a.fireCd > (a.remote ? 60 / (a.w?.rpm || 600) + 0.02 : 0) || a.reloadT > 0 || a.throwing || this.busy(a)) return false;
     if (a.weapon === 'knife') return this.melee(a);
     if (a.weapon === 'nade') return this.throwNade(a, power);
     const inv = a.inv[a.weapon], w = a.w;
@@ -304,7 +305,7 @@ export class Game {
       return false;
     }
     inv.mag--;
-    a.fireCd = 60 / w.rpm;
+    a.fireCd = a.remote ? Math.max(0, a.fireCd) + 60 / w.rpm : 60 / w.rpm;
     const spread = this.spreadOf(a);
     _o.set(a.pos.x, a.eyeY, a.pos.z);
     const baseYaw = aim ? aim.yaw : a.yaw + a.recoilY, basePitch = aim ? aim.pitch : a.pitch + a.recoilP;
