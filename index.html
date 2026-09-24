@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Cam-Strike: a 5v5 tactical first-person shooter with bomb defusal that runs in the browser and on Android.">
+  <meta name="description" content="Cam-Strike: a tactical first-person shooter with bomb defusal that runs in the browser and on Android.">
   <title>Cam-Strike</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
@@ -16,17 +16,20 @@
 </head>
 <body>
   <canvas id="gl"></canvas>
+  <div id="scope" class="hidden"><div class="hole"></div><i class="h"></i><i class="v"></i></div>
+  <div id="flashbang"></div>
 
   <!-- ===== HUD ===== -->
   <div id="hud" class="hidden">
-    <canvas id="minimap" width="300" height="300"></canvas>
-    <div id="money">$800</div>
+    <canvas id="minimap" width="320" height="320"></canvas>
+    <div id="hudLeftCol"><div id="money">$800</div><div id="callout"></div></div>
     <div id="scorebar">
       <div class="team t"><span class="alive" id="aliveT"></span><b id="scoreT">0</b></div>
       <div id="timer">1:55</div>
       <div class="team ct"><b id="scoreCT">0</b><span class="alive" id="aliveCT"></span></div>
     </div>
-    <div id="bombTimer" class="hidden">💣 <span></span></div>
+    <div id="bombTimer" class="hidden">BOMB <span></span></div>
+    <div id="punish" class="hidden"></div>
     <div id="killfeed"></div>
     <div id="center-msg"></div>
     <div id="sub-msg"></div>
@@ -37,53 +40,56 @@
     <div id="vitals">
       <div class="hp"><span class="ico">✚</span><b id="hp">100</b></div>
       <div class="armor"><span class="ico">⛨</span><b id="armor">0</b></div>
-      <div id="bombIcon" class="hidden">💣</div>
-      <div id="kitIcon" class="hidden">🔧</div>
+      <div id="bombIcon" class="hidden tag-icon">C4</div>
+      <div id="kitIcon" class="hidden tag-icon">KIT</div>
     </div>
     <div id="ammo"><b id="mag">12</b><span>/</span><span id="reserve">48</span><div id="wname">P-9 Pistol</div></div>
     <div id="weapons"></div>
     <div id="spectating" class="hidden"></div>
     <div id="dmg-vignette"></div>
     <div id="dmg-dir"></div>
-    <div id="scope" class="hidden"><div class="hole"></div><i class="h"></i><i class="v"></i></div>
   </div>
 
   <!-- ===== Touch controls ===== -->
   <div id="touch" class="hidden">
     <div id="stick"><div id="knob"></div></div>
-    <button data-btn="fire" id="btnFire" class="tbtn big"><svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
-    <button data-btn="fireL" id="btnFireL" class="tbtn"><svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
-    <button data-btn="jump" id="btnJump" class="tbtn">⤒</button>
-    <button data-btn="reload" id="btnReload" class="tbtn">R</button>
-    <button data-btn="scope" id="btnScope" class="tbtn hidden">◎</button>
+    <button data-btn="fire" id="btnFire" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg></button>
+    <button data-btn="fireL" id="btnFireL" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7"/><path d="M12 1v6M12 17v6M1 12h6M17 12h6"/></svg></button>
+    <button data-btn="jump" id="btnJump" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 20V6M6 11l6-6 6 6M5 21h14"/></svg></button>
+    <button data-btn="reload" id="btnReload" class="tbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
+    <button data-btn="scope" id="btnScope" class="tbtn hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg></button>
     <button data-btn="use" id="btnUse" class="tbtn hidden">USE</button>
-    <button data-btn="buy" id="btnBuy" class="tbtn small hidden">BUY</button>
-    <button data-btn="score" id="btnScore" class="tbtn small">☰</button>
-    <button data-btn="pause" id="btnPause" class="tbtn small">❚❚</button>
+    <button data-btn="buy" id="btnBuy" class="tbtn rect hidden">BUY</button>
+    <button data-btn="score" id="btnScore" class="tbtn rect">TAB</button>
+    <button data-btn="pause" id="btnPause" class="tbtn rect">❚❚</button>
   </div>
 
   <!-- ===== Buy menu ===== -->
   <div id="buy" class="overlay hidden">
     <div class="panel">
-      <div class="panel-head"><h2>Buy Menu</h2><span id="buyMoney">$0</span><button id="buyClose" class="x">✕</button></div>
-      <div id="buyGrid"></div>
-      <p class="tip">Buying is allowed in your spawn zone at the start of the round.</p>
+      <div class="panel-head"><h2>Buy Menu</h2><span id="buyMoney">$0</span><button id="buyClose" class="x" aria-label="Close">✕</button></div>
+      <h3 class="sec">Weapons</h3><div id="buyGuns" class="grid"></div>
+      <h3 class="sec">Grenades <small>(max 4)</small></h3><div id="buyNades" class="grid"></div>
+      <h3 class="sec">Equipment</h3><div id="buyGear" class="grid"></div>
     </div>
   </div>
 
   <!-- ===== Scoreboard ===== -->
   <div id="scoreboard" class="overlay hidden">
     <div class="panel wide">
-      <div class="panel-head"><h2>Scoreboard</h2><span id="sbRound"></span><button id="sbClose" class="x">✕</button></div>
+      <div class="panel-head"><h2>Scoreboard</h2><span id="sbRound"></span><button id="sbClose" class="x" aria-label="Close">✕</button></div>
       <div class="sb-cols"><div id="sbT"></div><div id="sbCT"></div></div>
     </div>
   </div>
 
   <!-- ===== Pause ===== -->
   <div id="pause" class="overlay hidden">
-    <div class="panel">
+    <div class="panel narrow">
       <h2>Paused</h2>
-      <label>Look sensitivity <input type="range" id="pauseSens" min="0.3" max="2.5" step="0.05"></label>
+      <label class="field">Look sensitivity <input type="range" id="pauseSens" min="0.3" max="2.5" step="0.05"></label>
+      <label class="field">Controls size <input type="range" id="pauseUi" min="0.7" max="1.6" step="0.05"></label>
+      <label class="field">Minimap size <input type="range" id="pauseMap" min="0.6" max="1.8" step="0.05"></label>
+      <button id="pauseLayout" class="menu-btn ghost">Move &amp; resize buttons</button>
       <button id="resume" class="menu-btn">Resume</button>
       <button id="quit" class="menu-btn ghost">Quit to menu</button>
     </div>
@@ -93,37 +99,84 @@
   <div id="menu" class="overlay">
     <div class="menu-box">
       <h1>CAM<span>·</span>STRIKE</h1>
-      <p class="tag">5v5 · Bomb Defusal · Sandstone</p>
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-mode="competitive"><b>Competitive</b><small>5v5 · first to 8 · friendly fire</small></button>
+        <button class="tab" data-mode="custom"><b>Custom</b><small>Your team sizes &amp; rules</small></button>
+      </div>
+
+      <h3 class="sec">Map</h3>
+      <div id="mapPick" class="maps"></div>
+
+      <div id="customPanel" class="custom hidden">
+        <label class="field">Terrorists <output id="oT">5</output><input type="range" id="cT" min="1" max="10" value="5"></label>
+        <label class="field">Counter-Terrorists <output id="oCT">5</output><input type="range" id="cCT" min="1" max="10" value="5"></label>
+        <label class="field">Rounds to win <output id="oR">8</output><input type="range" id="cR" min="1" max="16" value="8"></label>
+        <label class="field">Start money <output id="oM">$800</output><input type="range" id="cM" min="800" max="16000" step="200" value="800"></label>
+        <label class="field">Round time <output id="oRT">1:55</output><input type="range" id="cRT" min="60" max="240" step="5" value="115"></label>
+        <label class="chk"><input type="checkbox" id="cFF" checked> Friendly fire (teamkills are punished)</label>
+      </div>
+
+      <h3 class="sec">Play as</h3>
       <div class="row">
         <button class="team-btn t" data-team="T"><b>Terrorists</b><small>Plant the bomb at A or B</small></button>
         <button class="team-btn ct" data-team="CT"><b>Counter-Terrorists</b><small>Defend the sites, defuse</small></button>
       </div>
+
       <div class="row opts">
         <label>Bots
-          <select id="difficulty">
-            <option value="easy">Easy</option>
-            <option value="normal" selected>Normal</option>
-            <option value="hard">Hard</option>
-          </select>
+          <select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
         </label>
         <label>Graphics
-          <select id="quality">
-            <option value="low">Low (fast)</option>
-            <option value="medium" selected>Medium</option>
-            <option value="high">High</option>
-          </select>
+          <select id="quality"><option value="low">Low (fast)</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
         </label>
         <label class="chk"><input type="checkbox" id="aimAssist" checked> Aim assist (touch)</label>
       </div>
-      <label class="sens">Look sensitivity <input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="1"></label>
+      <div class="row sliders">
+        <label class="field">Look sensitivity <input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="1"></label>
+        <label class="field">Controls size <input type="range" id="uiScale" min="0.7" max="1.6" step="0.05" value="1"></label>
+        <label class="field">Minimap size <input type="range" id="mapScale" min="0.6" max="1.8" step="0.05" value="1"></label>
+      </div>
+      <div class="row">
+        <button id="openLoadout" class="menu-btn ghost half">Loadout &amp; skins</button>
+        <button id="openLayout" class="menu-btn ghost half">Move &amp; resize buttons</button>
+      </div>
       <details class="help">
         <summary>How to play</summary>
-        <p><b>Goal:</b> first team to 8 rounds. Terrorists win a round by detonating the bomb at site A or B or eliminating all Counter-Terrorists. Counter-Terrorists win by defusing the bomb, eliminating the Terrorists before a plant, or running out the clock.</p>
-        <p><b>Touch:</b> left thumb = move (joystick appears where you touch). Drag anywhere on the right = look. The big crosshair button fires and can also be dragged to aim while shooting. Hold <b>USE</b> on a site to plant (3s) or near the bomb to defuse (10s, 5s with kit).</p>
-        <p><b>Keyboard:</b> WASD move, mouse look, click fire, right-click scope, R reload, E plant/defuse (hold), Space jump, Shift walk, 1/2/Q weapons, B buy, Tab scoreboard, Esc pause.</p>
-        <p><b>Tip:</b> stop moving before you shoot. Running ruins accuracy, just like the real thing.</p>
+        <p><b>Goal:</b> Terrorists win a round by detonating the bomb at site A or B or eliminating the Counter-Terrorists. Counter-Terrorists win by defusing, eliminating the Terrorists before a plant, or running out the clock.</p>
+        <p><b>Touch:</b> left thumb moves (the joystick appears where you touch). Drag on the right to look. Hold the red button to fire, and keep dragging on it to aim while shooting. Tap a weapon on the right to switch: primary, pistol, knife, grenades. With a grenade out, fire throws it and the scope button lobs it underhand. Hold <b>USE</b> on a site to plant (3s) or at the bomb to defuse (10s, 5s with a kit).</p>
+        <p><b>Keyboard:</b> WASD, mouse, click fire, right-click scope or lob, R reload, E plant or defuse, Space jump, Shift walk, 1 primary, 2 pistol, 3 knife, 4 grenades (press again to cycle), Q last weapon, B buy, Tab scores, Esc pause.</p>
+        <p><b>Friendly fire:</b> bullets and grenades hurt teammates (half damage). Kill one and you lose your guns: knife only, no buying and no money for the next 2 rounds.</p>
       </details>
       <p id="installHint" class="tip"></p>
+    </div>
+  </div>
+
+  <!-- ===== Loadout & skins ===== -->
+  <div id="loadout" class="overlay hidden">
+    <div class="panel wide loadout">
+      <div class="panel-head"><h2>Loadout &amp; skins</h2><button id="loClose" class="x" aria-label="Close">✕</button></div>
+      <div class="lo-body">
+        <div class="lo-left">
+          <div id="loWeapons" class="lo-list"></div>
+          <h3 class="sec">Agents</h3>
+          <div id="loAgents" class="lo-agents"></div>
+        </div>
+        <div class="lo-right">
+          <canvas id="loPreview" width="480" height="300"></canvas>
+          <div id="loKnifeTypes" class="chips hidden"></div>
+          <div id="loSkins" class="skins"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Layout editor ===== -->
+  <div id="layoutEditor" class="hidden">
+    <div class="le-bar">
+      <b>Drag any control</b> · <span id="leName">Fire</span>
+      <label>Size <input type="range" id="leSize" min="0.5" max="2.6" step="0.05"></label>
+      <button id="leReset" class="menu-btn ghost">Reset</button>
+      <button id="leDone" class="menu-btn">Done</button>
     </div>
   </div>
 
@@ -133,6 +186,7 @@
       <h1 id="overTitle">Victory</h1>
       <p id="overScore" class="tag"></p>
       <button id="again" class="menu-btn">Play again</button>
+      <button id="toMenu" class="menu-btn ghost">Main menu</button>
     </div>
   </div>
 

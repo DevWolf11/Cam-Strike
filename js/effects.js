@@ -53,11 +53,11 @@ export class Effects {
     f.obj.visible = true; f.t = 0.05;
   }
 
-  explode(pos) {
-    this.boom.position.copy(pos); this.boom.visible = true; this.boomT = 1.2;
-    for (let i = 0; i < 16; i++) {
-      const p = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 8, Math.random() * 5, (Math.random() - 0.5) * 8));
-      this.puff(p, i % 2 ? 0x444444 : 0x886655, 2.5, 2.5, 1.5);
+  explode(pos, scale = 1) {
+    this.boom.position.copy(pos); this.boom.visible = true; this.boomT = 1.2; this.boomScale = scale;
+    for (let i = 0; i < 16 * scale; i++) {
+      const p = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 8 * scale, Math.random() * 5 * scale, (Math.random() - 0.5) * 8 * scale));
+      this.puff(p, i % 2 ? 0x444444 : 0x886655, 2.5 * scale, 2.5 * Math.max(0.5, scale), 1.5);
     }
   }
 
@@ -78,7 +78,7 @@ export class Effects {
     if (this.boom.visible) {
       this.boomT -= dt;
       const k = 1 - this.boomT / 1.2;
-      this.boom.scale.setScalar(2 + k * 20);
+      this.boom.scale.setScalar((2 + k * 20) * (this.boomScale || 1));
       this.boom.material.opacity = Math.max(0, 1 - k) * 0.85;
       if (this.boomT <= 0) this.boom.visible = false;
     }
