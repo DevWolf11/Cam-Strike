@@ -1,19 +1,24 @@
 import * as THREE from '../lib/three.module.min.js';
 import { WEAPONS } from './config.js';
 import { input, consume } from './input.js';
-import { weaponMesh } from './weapons3d.js';
+import { weaponMesh, MUZZLE, setViewmodelEnv } from './weapons3d.js';
+import { armMesh } from './hands.js';
+import { fabricTex } from './textures.js';
 import * as W from './world.js';
 
 const BASE_FOV = 78;
-const VM_MATS = new Map();
+// Left hand position on each long gun's handguard: [forward, height]
+const FORE = { smg: [0.3, 0.054], shotgun: [0.34, 0.035], rifle: [0.36, 0.046], sniper: [0.3, 0.004] };
+let envTex = null;
 const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 
 // Where the gun's grip sits in view space, per weapon kind
-const VM = {
-  rifle:  { x: 0.15, y: -0.2, z: -0.46, s: 0.85 },
-  pistol: { x: 0.14, y: -0.18, z: -0.52, s: 0.78 },
-  knife:  { x: 0.17, y: -0.2, z: -0.38, s: 1.1 },
-  nade:   { x: 0.17, y: -0.19, z: -0.36, s: 1.2 },
+export const VM = {
+  rifle:  { x: 0.19, y: -0.15, z: -0.34, s: 1, rx: 0.06, ry: 0.12, rz: 0.2 },
+  pistol: { x: 0.13, y: -0.13, z: -0.3, s: 1, rx: 0.05, ry: 0.08, rz: 0.08 },
+  knife:  { x: 0.14, y: -0.13, z: -0.27, s: 1, rx: 0.35, ry: 0.35, rz: -0.35 },
+  nade:   { x: 0.15, y: -0.13, z: -0.3, s: 0.9, rx: 0.1, ry: 0.3, rz: 0 },
+  sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
 
 export class PlayerController {
@@ -38,9 +43,12 @@ export class PlayerController {
     this.spec = null; this.deathT = 0;
     this.fovNow = BASE_FOV;
     const o = game.player.char.outfit;
-    this.sleeveMat = new THREE.MeshLambertMaterial({ color: o.sleeve });
-    this.gloveMat = new THREE.MeshLambertMaterial({ color: o.gloves });
-    this.cuffMat = new THREE.MeshLambertMaterial({ color: o.vest });
+    this.armMats = {
+      glove: new THREE.MeshStandardMaterial({ color: o.gloves, roughness: 0.78, metalness: 0, side: THREE.DoubleSide }),
+      sleeve: new THREE.MeshStandardMaterial({ color: o.sleeve, map: fabricTex(), roughness: 0.92, metalness: 0, vertexColors: true, side: THREE.DoubleSide }),
+      watch: new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.3, metalness: 0.8, vertexColors: true }),
+    };
+    this.envBuilt = false;
     game.on((type, d) => {
       if (type === 'shot' && d.agent === game.player && !d.confirm) this.kick = 1;
       if (type === 'roundStart') { this.setSpectate(null); this.deathT = 0; }
@@ -54,32 +62,33 @@ export class PlayerController {
     this.vmKey = key;
     this.vm.clear();
     const kind = a.weapon === 'nade' ? 'nade' : a.w.kind;
-    const P = VM[kind] || VM.rifle;
-    const gun = weaponMesh(id, a.loadout);
-    // first-person guns get a specular sheen (world copies stay on cheap Lambert)
-    gun.traverse((o) => {
-      if (!o.isMesh || !o.material.isMeshLambertMaterial) return;
-      const m = o.material;
-      o.material = VM_MATS.get(m) || VM_MATS.set(m, new THREE.MeshPhongMaterial({ map: m.map, vertexColors: m.vertexColors, color: m.color, shininess: 45, specular: 0x3a3a36 })).get(m);
-    });
+    const P = VM[id] || VM[kind] || VM.rifle;
+    const gun = weaponMesh(id, a.loadout, 'vm');
     gun.scale.setScalar(P.s);
     gun.position.set(P.x, P.y, P.z);
-    gun.rotation.y = 0.05;
-    if (kind === 'knife') gun.rotation.set(-0.35, 0.25, -0.2);
+    gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
-    const box = (w, h, d, mat, x, y, z, rx = 0, ry = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.rotation.set(rx, ry, 0); this.vm.add(m); return m; };
-    // right hand on the grip + forearm with a cuff
-    box(0.075, 0.085, 0.1, this.gloveMat, P.x, P.y - 0.03, P.z + 0.02);
-    box(0.085, 0.085, 0.46, this.sleeveMat, P.x + 0.05, P.y - 0.1, P.z + 0.27, 0.32, 0.18);
-    box(0.09, 0.09, 0.05, this.cuffMat, P.x + 0.02, P.y - 0.04, P.z + 0.07, 0.32, 0.18);
-    // left hand: foregrip for long guns, cupping for pistols, relaxed otherwise
-    const len = (WEAPONS[a.weapon]?.len || 0.3) * P.s;
-    let lx = P.x - 0.02, ly = P.y - 0.02, lz = P.z - len * 0.5;
-    if (kind === 'pistol') { lx = P.x - 0.03; ly = P.y - 0.05; lz = P.z + 0.01; }
-    if (kind === 'knife' || kind === 'nade') { lx = P.x - 0.3; ly = P.y - 0.12; lz = P.z + 0.02; }
-    box(0.075, 0.075, 0.1, this.gloveMat, lx, ly, lz);
-    box(0.085, 0.085, 0.55, this.sleeveMat, lx - 0.13, ly - 0.1, lz + 0.25, 0.3, -0.5);
-    this.muzzle.position.set(0, 0.06, -(WEAPONS[a.weapon]?.len || 0.3) * 1.05);
+    // hands and sleeves ride on the gun so they follow every animation
+    const M = this.armMats, gunId = a.weapon;
+    if (kind === 'knife' || kind === 'nade') {
+      gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
+    } else {
+      const R = armMesh('grip', M, { wrist: [0.032, -0.046, 0.05], dir: [0.3, -0.42, 1] });
+      R.rotation.x = -0.3;
+      gun.add(R);
+      if (kind === 'pistol') {
+        const L = armMesh('grip', M, { wrist: [0.032, -0.046, 0.05], dir: [0.3, -0.42, 1], watch: true });
+        L.scale.x = -1; L.rotation.set(-0.35, 0.12, 0); L.position.set(-0.012, -0.018, 0.012);
+        gun.add(L);
+      } else {
+        const [fu, fv] = FORE[gunId] || FORE.rifle;
+        const L = armMesh('fore', M, { wrist: [-0.01, -0.055, 0.045], dir: [-0.42, -0.5, 1], watch: true });
+        L.position.set(0, fv, -fu);
+        gun.add(L);
+      }
+    }
+    const mz = MUZZLE[gunId];
+    this.muzzle.position.set(0, mz ? mz[0] : 0.06, mz ? -mz[1] : -(WEAPONS[gunId]?.len || 0.3) * 1.05);
     gun.add(this.muzzle);
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
     this.switchT = 0.35;
@@ -271,12 +280,38 @@ export class PlayerController {
     }
   }
 
+  // Reflections for the first-person gun: a blurred copy of this map's sky, ground and sun
+  buildEnv(renderer) {
+    this.envBuilt = true;
+    const T = this.game.mapDef.theme, sc = new THREE.Scene();
+    const geo = new THREE.SphereGeometry(10, 32, 16), pos = geo.attributes.position, cols = [];
+    const top = new THREE.Color(T.sky[0]), hor = new THREE.Color(T.sky[2]), gnd = new THREE.Color(T.hemi[1]).multiplyScalar(0.7), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i) / 10;
+      if (y >= 0) c.copy(hor).lerp(top, Math.sqrt(y)); else c.copy(hor).lerp(gnd, Math.min(1, -y * 4));
+      cols.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    sc.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const sun = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(T.sun).multiplyScalar(8) }));
+    sun.position.copy(this.sunDir).multiplyScalar(8); sc.add(sun);
+    const pm = new THREE.PMREMGenerator(renderer);
+    const rt = pm.fromScene(sc, 0.04);
+    pm.dispose(); geo.dispose();
+    if (envTex) envTex.dispose();
+    envTex = rt;
+    setViewmodelEnv(rt.texture);
+  }
+
   render(renderer, scene) {
+    if (!this.envBuilt) this.buildEnv(renderer);
     // sun direction in view space so the gun is lit from the same side as the world
     this.vmSun.position.copy(this.sunDir).transformDirection(this.camera.matrixWorldInverse).multiplyScalar(5);
     renderer.render(scene, this.camera);
     if (this.vm.visible) {
       renderer.autoClear = false;
+      // the last world draw may have left depth writes off (sprites, decals), which makes clearDepth a no-op
+      renderer.state.buffers.depth.setMask(true);
       renderer.clearDepth();
       renderer.render(this.vmScene, this.vmCamera);
       renderer.autoClear = true;

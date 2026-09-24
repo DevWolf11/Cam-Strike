@@ -226,9 +226,9 @@ function planUtility(a, g) {
 // Aim a lob at a ground point. Returns false if it's out of reach.
 function aimLob(a, tx, ty, tz) {
   const dx = tx - a.pos.x, dz = tz - a.pos.z, d = Math.hypot(dx, dz), h = ty - a.eyeY;
-  if (d > 38) return false;
+  if (d > 48) return false;
   a.yaw = Math.atan2(-dx, -dz);
-  const v = 18, gr = 16;
+  const v = 24, gr = 16;             // matches a full-power throw (grenades.js)
   // solve v^2 sin(2θ)/g ≈ d with height correction, prefer the low arc
   const disc = v ** 4 - gr * (gr * d * d + 2 * h * v * v);
   a.pitch = disc < 0 ? Math.PI / 4 : Math.atan((v * v - Math.sqrt(disc)) / (gr * d));

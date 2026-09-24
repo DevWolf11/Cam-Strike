@@ -8,8 +8,8 @@ import { Effects, surfKind } from './effects.js';
 import { Grenades } from './grenades.js';
 import * as SFX from './audio.js';
 import { initBotRound, updateBot, botBuy } from './bot.js';
-import { weaponMesh, SKINS, KNIVES } from './weapons3d.js';
-import { OUTFITS } from './character.js';
+import { weaponMesh, SKINS, KNIVES, prewarmWeapons } from './weapons3d.js';
+import { OUTFITS, setRagdollPushers, ragdollBlast } from './character.js';
 
 const _v = new THREE.Vector3(), _o = new THREE.Vector3(), _d = new THREE.Vector3();
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -77,6 +77,7 @@ export class Game {
     this.mapDef = getMap(opts.map || 'dust2');
     W.setMap(this.mapDef);
     this.mapObjs = buildMap(scene, this.mapDef, opts.quality);
+    prewarmWeapons();
     this.effects = new Effects(scene, camera, { quality: opts.quality, theme: this.mapDef.theme });
     this.grenades = new Grenades(this);
     this.listeners = [];
@@ -530,6 +531,7 @@ export class Game {
     const b = this.bomb;
     b.state = 'exploded'; this.bombMesh.visible = false;
     this.effects.explode(_v.copy(b.pos).setY(b.pos.y + 1));
+    ragdollBlast(b.pos.x, b.pos.y + 0.5, b.pos.z, 22, 11);
     SFX.explosion(this.soundFrom(b.pos).dist);
     this.emit('explode');
     for (const a of this.agents) {
@@ -547,6 +549,7 @@ export class Game {
   // ---------------- Main update ----------------
   update(dt) {
     this.time += dt;
+    setRagdollPushers(this.agents);
     const b = this.bomb;
     if (this.phase === 'freeze') {
       this.timer -= dt;

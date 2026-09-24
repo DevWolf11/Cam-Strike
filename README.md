@@ -46,6 +46,7 @@ Everything is generated in code, with no image files: textures are painted onto 
 - **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves), a sky dome with drifting clouds and a sun glow, a distant skyline for each map (desert town, industrial yard, power plant), filmic tone mapping and ambient occlusion baked into the map.
 - **Materials:** 512px textures with matching bump maps, so mortar lines, cobbles, planks and corrugated metal catch the light. Walls have a stone base band, and the maps carry posters, graffiti, drainpipes, AC units and rubble.
 - **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, starburst muzzle flashes that light up nearby walls, layered explosions (flash, fireball, smoke, sparks) with camera shake, smoke clouds, and molotovs that give off smoke and embers.
+- **Weapons:** every gun is modelled from real-style side profiles with rounded edges and turned barrels. That means a stamped receiver with rivets and a curved 30-round magazine on the AR-47, a roller-lock SMG with an integral suppressor, a pump shotgun with a vent rib, a thumbhole sniper with a turreted scope, and a pistol with slide serrations. Knives and grenades get the same treatment. In first person, steel, wood and polymer use physically based materials that reflect the map's sky, and your hands have real fingers wrapped around the grip and handguard.
 - **Animation:**
   - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land and bobs in a figure-8 as you walk.
   - The gun is lit by the map's sun and darkens when you step into shade.
@@ -71,9 +72,9 @@ On every setting the game watches its frame rate. If your device can't keep up (
 | 1 | Longshot .338 | $4750 | Scoped sniper, one-shot body kill |
 | 2 | P-9 Pistol | $200 | Everyone spawns with one |
 | 3 | Knife | free | 40 damage, 180 from behind (backstab), fastest movement, $1500 kill reward |
-| 4 | Grenades (max 4) | | **HE** $300 (damage blast), **Flashbang** $200 (blinds anyone looking at it, max 2), **Smoke** $300 (18s cloud that blocks vision for players *and* bots), **Molotov** $400 (7s fire zone, put out by smoke) |
+| 4 | Grenades (max 4) | | **HE** $300 (up to 125 damage in a 9m blast), **Flashbang** $200 (blinds anyone looking at it within 26m, max 2), **Smoke** $300 (18s cloud that blocks vision for players *and* bots), **Molotov** $400 (8s fire zone, 4.2m wide, 55 damage per second, put out by smoke) |
 
-Also available: Kevlar + Helmet ($1000) and a Defuse Kit ($400, CT only). Headshots do 4× damage. You're most accurate standing still, and the crosshair shows your current spread.
+A full-strength throw carries a grenade about 35m; the underhand lob is for short, precise tosses. Also available: Kevlar + Helmet ($1000) and a Defuse Kit ($400, CT only). Headshots do 4× damage. You're most accurate standing still, and the crosshair shows your current spread.
 
 ### Skins and agents
 
@@ -87,7 +88,13 @@ With friendly fire on, your bullets, knife and grenades hurt teammates at half d
 
 Bots see within a field of view with real line of sight (smokes block it). They hear gunshots and footsteps, need time to react, and aim with an error that tightens over time. They fire in bursts and strafe between bursts, and a flashbang blinds them. Terrorists pick a site, split across routes, smoke and flash the entrances on the execute, plant, then guard the bomb. Counter-Terrorists hold both sites and mid, rotate on callouts, throw HE and molotovs at enemies who break line of sight, and retake and defuse after a plant. Difficulty (Easy, Normal, Hard) changes reaction time, aim, turn speed, field of view and how often they use grenades.
 
-Characters are jointed models with walk and aim animation. On death they become **ragdolls** (verlet physics) that fall with the force of the hit and collide with the map.
+Characters are jointed models with rounded anatomy: plate carriers with magazine pouches and radios, helmets with headsets and night-vision mounts, gas masks, balaclavas, caps, knee pads, holsters, laced boots and gloved hands. They walk, strafe and aim with procedural animation.
+
+On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
+- it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
+- bodies pile on top of each other;
+- living players shove bodies aside as they walk through them;
+- explosions throw bodies, and bullets passing through a body jolt it.
 
 ## Controls
 

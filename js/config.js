@@ -60,28 +60,28 @@ export const WEAPONS = {
     damage: 32, headMult: 4, armorPen: 0.55, pellets: 1, range: 45, falloff: 0.5,
     rpm: 380, auto: false, mag: 12, reserve: 48, reload: 2.1,
     spread: 0.006, moveSpread: 0.03, spraySpread: 0.006, recoil: 0.018, recoilYaw: 0.004,
-    speed: 5.9, len: 0.28, impulse: 2,
+    speed: 5.9, len: 0.18, impulse: 2,
   },
   smg: {
     id: 'smg', name: 'Viper SMG', slot: 1, price: 1250, kill: 600, kind: 'rifle',
     damage: 26, headMult: 4, armorPen: 0.6, pellets: 1, range: 35, falloff: 0.55,
     rpm: 850, auto: true, mag: 30, reserve: 120, reload: 2.4,
     spread: 0.012, moveSpread: 0.018, spraySpread: 0.0025, recoil: 0.011, recoilYaw: 0.006,
-    speed: 5.8, len: 0.48, impulse: 2,
+    speed: 5.8, len: 0.52, impulse: 2,
   },
   shotgun: {
     id: 'shotgun', name: 'Breacher 12G', slot: 1, price: 1100, kill: 900, kind: 'rifle',
     damage: 24, headMult: 2, armorPen: 0.5, pellets: 9, range: 18, falloff: 0.15,
     rpm: 70, auto: false, mag: 8, reserve: 32, reload: 3.0,
     spread: 0.075, moveSpread: 0.02, spraySpread: 0, recoil: 0.06, recoilYaw: 0.01,
-    speed: 5.4, len: 0.62, impulse: 5,
+    speed: 5.4, len: 0.64, impulse: 5,
   },
   rifle: {
     id: 'rifle', name: 'AR-47 Rifle', slot: 1, price: 2700, kill: 300, kind: 'rifle',
     damage: 36, headMult: 4, armorPen: 0.78, pellets: 1, range: 80, falloff: 0.9,
     rpm: 600, auto: true, mag: 30, reserve: 90, reload: 2.5,
     spread: 0.0035, moveSpread: 0.055, spraySpread: 0.0032, recoil: 0.016, recoilYaw: 0.008,
-    speed: 5.3, len: 0.7, impulse: 3,
+    speed: 5.3, len: 0.72, impulse: 3,
   },
   sniper: {
     id: 'sniper', name: 'Longshot .338', slot: 1, price: 4750, kill: 100, kind: 'rifle',
@@ -98,10 +98,10 @@ export const WEAPONS = {
 };
 
 export const GRENADES = {
-  he:      { id: 'he', name: 'HE Grenade', price: 300, max: 1, damage: 98, radius: 7, fuse: 1.6, color: 0x3a4a2a },
-  flash:   { id: 'flash', name: 'Flashbang', price: 200, max: 2, radius: 22, fuse: 1.5, color: 0x8a9096 },
+  he:      { id: 'he', name: 'HE Grenade', price: 300, max: 1, damage: 125, radius: 9, fuse: 1.6, color: 0x3a4a2a },
+  flash:   { id: 'flash', name: 'Flashbang', price: 200, max: 2, radius: 26, fuse: 1.5, color: 0x8a9096 },
   smoke:   { id: 'smoke', name: 'Smoke Grenade', price: 300, max: 1, radius: 4.2, duration: 18, fuse: 1.8, color: 0x5a6a5a },
-  molotov: { id: 'molotov', name: 'Molotov', price: 400, max: 1, radius: 3.6, duration: 7, dps: 40, fuse: 2.5, color: 0x6a3a14 },
+  molotov: { id: 'molotov', name: 'Molotov', price: 400, max: 1, radius: 4.2, duration: 8, dps: 55, fuse: 2.5, color: 0x6a3a14 },
 };
 export const NADE_ORDER = ['he', 'flash', 'smoke', 'molotov'];
 export const MAX_NADES = 4;
