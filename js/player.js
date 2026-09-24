@@ -5,6 +5,7 @@ import { weaponMesh } from './weapons3d.js';
 import * as W from './world.js';
 
 const BASE_FOV = 78;
+const VM_MATS = new Map();
 const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 
 // Where the gun's grip sits in view space, per weapon kind
@@ -21,8 +22,13 @@ export class PlayerController {
     camera.rotation.order = 'YXZ';
     this.vmScene = new THREE.Scene();
     this.vmCamera = new THREE.PerspectiveCamera(62, camera.aspect, 0.01, 10);
-    this.vmScene.add(new THREE.HemisphereLight(0xfff4e0, 0x6a5a45, 2.2));
-    const dl = new THREE.DirectionalLight(0xffe2b0, 1.3); dl.position.set(1, 2, 1); this.vmScene.add(dl);
+    // viewmodel lights take the map's sky/ground/sun colors; the sun is placed in view space each frame
+    const T = game.mapDef.theme;
+    this.vmHemi = new THREE.HemisphereLight(T.hemi[0], T.hemi[1], 1.9);
+    this.vmSun = new THREE.DirectionalLight(T.sun, 1.3);
+    this.vmScene.add(this.vmHemi, this.vmSun, this.vmSun.target);
+    this.sunDir = new THREE.Vector3(...(T.sunPos || [40, 80, 30])).normalize();
+    this.anim = { swayX: 0, swayY: 0, rec: 0, recV: 0, land: 0, landV: 0, lastVy: 0, moveAmt: 0, breath: 0, lean: 0, lightT: 0, lit: 1, litNow: 1 };
     this.vm = new THREE.Group();
     this.vmScene.add(this.vm);
     this.vmKey = null;
@@ -50,6 +56,12 @@ export class PlayerController {
     const kind = a.weapon === 'nade' ? 'nade' : a.w.kind;
     const P = VM[kind] || VM.rifle;
     const gun = weaponMesh(id, a.loadout);
+    // first-person guns get a specular sheen (world copies stay on cheap Lambert)
+    gun.traverse((o) => {
+      if (!o.isMesh || !o.material.isMeshLambertMaterial) return;
+      const m = o.material;
+      o.material = VM_MATS.get(m) || VM_MATS.set(m, new THREE.MeshPhongMaterial({ map: m.map, vertexColors: m.vertexColors, color: m.color, shininess: 45, specular: 0x3a3a36 })).get(m);
+    });
     gun.scale.setScalar(P.s);
     gun.position.set(P.x, P.y, P.z);
     gun.rotation.y = 0.05;
@@ -189,26 +201,68 @@ export class PlayerController {
 
   showAgentView(a, dt) {
     this.buildViewmodel(a);
-    const vm = this.vm, w = a.w;
+    const vm = this.vm, w = a.w, S = this.anim;
     vm.visible = !(a.scoped && w.zoomFov);
-    this.kick = Math.max(0, this.kick - dt * 9);
+    if (S.agent !== a) { S.agent = a; S.lastYaw = a.yaw; S.lastPitch = a.pitch; S.wasGround = a.onGround; }
     this.switchT = Math.max(0, this.switchT - dt);
-    const moving = Math.min(1, (a.speed || 0) / 5);
-    this.bob += dt * (6 + moving * 5) * (moving > 0.05 ? 1 : 0.3);
-    const bx = Math.sin(this.bob) * 0.012 * moving, by = Math.abs(Math.cos(this.bob)) * 0.012 * moving;
-    let rotX = this.kick * 0.12, rotY = 0, rotZ = 0, posZ = this.kick * 0.05, posY = -this.switchT * 0.9, posX = 0;
-    if (a.reloadT > 0) { const dip = Math.sin(Math.min(1, 1 - a.reloadT / w.reload) * Math.PI); rotX -= dip * 0.7; posY -= dip * 0.12; }
+    const k = Math.min(1, dt * 60);
+    // sway: the gun lags behind the look direction and springs back
+    const dyaw = wrap(a.yaw - S.lastYaw), dpitch = a.pitch - S.lastPitch;
+    S.lastYaw = a.yaw; S.lastPitch = a.pitch;
+    S.swayX += (Math.max(-0.06, Math.min(0.06, dyaw * 0.5)) - S.swayX) * Math.min(1, dt * 10);
+    S.swayY += (Math.max(-0.05, Math.min(0.05, dpitch * 0.5)) - S.swayY) * Math.min(1, dt * 10);
+    // spring recoil (kick is an impulse set when you fire)
+    if (this.kick > 0) { S.recV += this.kick * (w.id === 'sniper' || w.id === 'shotgun' ? 16 : 9); this.kick = 0; }
+    S.recV += (-S.rec * 320 - S.recV * 26) * dt; S.rec += S.recV * dt;
+    // landing dip
+    if (a.onGround && !S.wasGround) S.landV -= Math.min(1.6, 0.5 + Math.abs(S.lastVy) * 0.12);
+    S.wasGround = a.onGround; S.lastVy = a.vy;
+    S.landV += (-S.land * 180 - S.landV * 18) * dt; S.land += S.landV * dt;
+    // walk bob (figure 8) + idle breathing
+    const moving = a.onGround ? Math.min(1, (a.speed || 0) / 5) : 0;
+    S.moveAmt += (moving - S.moveAmt) * Math.min(1, dt * 8);
+    this.bob += dt * (7 + moving * 4) * (S.moveAmt > 0.05 ? 1 : 0);
+    S.breath += dt * 1.6;
+    const m = S.moveAmt * (a.scoped ? 0.3 : 1);
+    const bx = Math.cos(this.bob) * 0.014 * m, by = -Math.abs(Math.sin(this.bob)) * 0.012 * m + Math.sin(S.breath) * 0.0025;
+    // strafe lean
+    const rxv = Math.cos(a.yaw) * a.vx - Math.sin(a.yaw) * a.vz;
+    S.lean += (-rxv * 0.012 - S.lean) * Math.min(1, dt * 8);
+
+    let rotX = S.rec * 0.2 - S.swayY, rotY = -S.swayX * 1.2, rotZ = S.lean + S.swayX * 0.6;
+    let posX = S.swayX * 0.25, posY = S.land * 0.06 - S.swayY * 0.2, posZ = S.rec * 0.07;
+    // draw: rises from below with a twist, eased out
+    if (this.switchT > 0) { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
+    if (a.reloadT > 0) {
+      // reload: tilt the gun, drop the mag side toward you, slap it home near the end
+      const r = 1 - a.reloadT / w.reload, dip = Math.sin(Math.min(1, r * 1.15) * Math.PI);
+      rotZ += dip * 0.55; rotX -= dip * 0.35; posY -= dip * 0.08; posX -= dip * 0.03;
+      if (r > 0.62 && r < 0.78) { const q = Math.sin((r - 0.62) / 0.16 * Math.PI); posY += q * 0.025; rotX += q * 0.12; }
+    }
     if (a.actionT > 0) {
       const t = a.actionT;
-      if (this.vmKind === 'knife') { const s = Math.sin(t * Math.PI); rotY = s * 0.9; rotZ = -s * 0.6; posX = -s * 0.12; posZ = -s * 0.1; }
+      if (this.vmKind === 'knife') { const s = Math.sin(t * Math.PI); rotY += s * 0.9; rotZ -= s * 0.6; posX -= s * 0.12; posZ -= s * 0.1; }
       if (this.vmKind === 'nade') { const s = t < 0.5 ? t * 2 : 1 - (t - 0.5) * 2; posY += s * 0.12; posZ += t < 0.5 ? s * 0.12 : -s * 0.2; rotX -= s * 0.6; }
     }
-    if (a.throwing) { posY -= 0.05; }
+    if (a.throwing) { posY -= 0.05; rotX += 0.25; }
     vm.position.set(bx + posX, by + posY, posZ);
     vm.rotation.set(rotX, rotY, rotZ);
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
     this.vmCamera.aspect = this.camera.aspect;
     this.vmCamera.updateProjectionMatrix();
+    // viewmodel lighting follows the map: dim it when you stand in shade or indoors
+    S.lightT -= dt;
+    if (S.lightT <= 0) {
+      S.lightT = 0.15;
+      const d = this.sunDir, h = W.raycast(a.pos.x, a.eyeY, a.pos.z, d.x, d.y, d.z, 80);
+      S.lit = h.dist >= 80 ? 1 : 0;
+    }
+    S.litNow += (S.lit - S.litNow) * Math.min(1, dt * 5);
+    this.vmSun.intensity = 0.25 + S.litNow * 1.6;
+    this.vmHemi.intensity = 1.2 + S.litNow * 0.7;
+    // camera shake from nearby explosions
+    const sh = this.game.effects.shake;
+    if (sh > 0) { const t = performance.now() / 1000; this.camera.rotation.x += Math.sin(t * 53) * sh * 0.02; this.camera.rotation.y += Math.sin(t * 47 + 1) * sh * 0.02; this.camera.rotation.z = Math.sin(t * 31) * sh * 0.015; }
     if (a === this.game.player) {
       this.muzzle.updateWorldMatrix(true, false);
       const lp = new THREE.Vector3().setFromMatrixPosition(this.muzzle.matrixWorld);
@@ -218,6 +272,8 @@ export class PlayerController {
   }
 
   render(renderer, scene) {
+    // sun direction in view space so the gun is lit from the same side as the world
+    this.vmSun.position.copy(this.sunDir).transformDirection(this.camera.matrixWorldInverse).multiplyScalar(5);
     renderer.render(scene, this.camera);
     if (this.vm.visible) {
       renderer.autoClear = false;

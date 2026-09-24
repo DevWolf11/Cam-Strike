@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { GeoBuilder } from './geom.js';
 import { groundAt, pointBlocked } from './world.js';
+import { fabricTex } from './textures.js';
 
 // ---------------- Outfits ----------------
 // Each team has several looks; bots get a random one, the player picks in the Loadout menu.
@@ -19,7 +20,8 @@ export const OUTFITS = {
   ],
 };
 
-const MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+let MAT = null;
+const mat = () => (MAT ||= new THREE.MeshLambertMaterial({ vertexColors: true, map: fabricTex() }));
 const Y = new THREE.Vector3(0, 1, 0);
 
 // Limb definitions: [name, jointA, jointB, rest length]
@@ -94,24 +96,26 @@ function limbGeo(name, o) {
       break;
     }
     case 'uarmL': case 'uarmR': {
-      g.box(0.13, L, 0.13, 0, L / 2, 0, o.sleeve);
+      g.cyl(0.058, 0.07, L, 0, L / 2, 0, o.sleeve, 8);
       g.box(0.145, 0.1, 0.145, 0, 0.06, 0, shadeHex(o.vest, 0.9));     // shoulder pad
       if (name === 'uarmL') g.box(0.02, 0.06, 0.1, -0.075, L * 0.5, 0, o.accent);  // armband
       break;
     }
     case 'farmL': case 'farmR': {
-      g.box(0.11, L * 0.8, 0.11, 0, L * 0.4, 0, o.sleeve);
-      g.box(0.1, 0.12, 0.1, 0, L * 0.9, 0, o.gloves);                  // glove
+      g.cyl(0.045, 0.057, L * 0.8, 0, L * 0.4, 0, o.sleeve, 8);
+      g.cyl(0.05, 0.05, 0.03, 0, L * 0.78, 0, shadeHex(o.sleeve, 0.8), 8);  // rolled cuff
+      g.box(0.09, 0.12, 0.1, 0, L * 0.9, 0, o.gloves);                 // glove
+      g.box(0.03, 0.06, 0.04, -0.05, L * 0.88, -0.03, o.gloves);       // thumb
       break;
     }
     case 'thighL': case 'thighR': {
-      g.box(0.16, L, 0.17, 0, L / 2, 0, o.pants);
+      g.cyl(0.07, 0.088, L, 0, L / 2, 0, o.pants, 8);
       g.box(0.05, 0.12, 0.1, name === 'thighL' ? -0.1 : 0.1, L * 0.45, 0, shadeHex(o.pants, 0.75)); // side pocket
       if (name === 'thighR') g.box(0.1, 0.14, 0.06, 0.1, L * 0.3, 0.02, 0x2a2622);                   // holster
       break;
     }
     case 'shinL': case 'shinR': {
-      g.box(0.14, L * 0.78, 0.15, 0, L * 0.39, 0, o.pants);
+      g.cyl(0.066, 0.058, L * 0.78, 0, L * 0.39, 0, o.pants, 8);
       g.box(0.15, 0.1, 0.05, 0, 0.06, 0.085, shadeHex(o.vest, 0.7));   // knee pad (front = +Z)
       g.box(0.15, 0.16, 0.19, 0, L * 0.86, 0.0, o.boots);
       g.box(0.15, 0.08, 0.26, 0, L - 0.03, 0.05, o.boots);             // boot toe
@@ -146,15 +150,15 @@ export class Character {
     this.outfit = list[((i % list.length) + list.length) % list.length];
     this.group = new THREE.Group();
     this.limbs = LIMBS.map(([name, a, b, len]) => {
-      const mesh = new THREE.Mesh(limbGeo(name, this.outfit), MAT);
-      mesh.matrixAutoUpdate = false;
+      const mesh = new THREE.Mesh(limbGeo(name, this.outfit), mat());
+      mesh.matrixAutoUpdate = false; mesh.receiveShadow = true;
       this.group.add(mesh);
       return { name, a, b, len, mesh };
     });
     this.J = Object.fromEntries(JOINTS.map((k) => [k, new THREE.Vector3()]));
     this.gun = null;
     const pack = new GeoBuilder().box(0.26, 0.3, 0.12, 0, 0.35, 0.2, 0x3a3a2a).box(0.16, 0.08, 0.02, 0, 0.42, 0.265, 0x223322).box(0.03, 0.03, 0.01, 0.06, 0.42, 0.27, 0xff2020);
-    this.pack = new THREE.Mesh(pack.build(), MAT);
+    this.pack = new THREE.Mesh(pack.build(), mat());
     this.pack.visible = false;
     this.limbs[0].mesh.add(this.pack);
     const shadowGeo = new THREE.CircleGeometry(0.45, 14);
@@ -178,38 +182,56 @@ export class Character {
   // ---- alive: procedural pose from agent state ----
   pose(a, dt, kind = 'rifle', gunLen = 0.7, action = 0) {
     this.rag = null;
-    const J = this.J, moving = a.moving ?? 0, speed = a.speed ?? 0;
+    const J = this.J, speed = a.speed ?? 0;
     this.phase += dt * (3 + speed * 1.6) * (speed > 0.3 ? 1 : 0);
     const ph = this.phase, sw = Math.min(1, speed / 4.5);
     const bob = Math.abs(Math.sin(ph)) * 0.035 * sw;
     const air = a.onGround === false ? 1 : 0;
     const crouch = (a.crouch || 0) * 0.35;
-    // local skeleton (faces -Z)
+    const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
+    // movement direction in the body frame (forward = -Z): legs swing that way, so strafing
+    // and backpedalling look right instead of moonwalking
+    let mx = (a.vx || 0) * cy - (a.vz || 0) * sy, mz = (a.vx || 0) * sy + (a.vz || 0) * cy;
+    const ml = Math.hypot(mx, mz);
+    if (ml > 0.3) { mx /= ml; mz /= ml; } else { mx = 0; mz = -1; }
+    this.mdx = (this.mdx ?? 0) + (mx - (this.mdx ?? 0)) * Math.min(1, dt * 10);
+    this.mdz = (this.mdz ?? -1) + (mz - (this.mdz ?? -1)) * Math.min(1, dt * 10);
+    const dl = Math.hypot(this.mdx, this.mdz) || 1, dx = this.mdx / dl, dz = this.mdz / dl;
+    // firing kick decays fast; reload progress drives the support hand
+    this.kick = Math.max(0, (this.kick || 0) - dt * 8);
+    const kick = this.kick * this.kick;
+    const rl = a.reloadT > 0 && a.w?.reload ? Math.sin(Math.min(1, 1 - a.reloadT / a.w.reload) * Math.PI) : 0;
+    // lean into the run and slightly into strafes
+    const leanZ = dz * 0.07 * sw, leanX = dx * 0.04 * sw;
     const set = (k, x, y, z) => J[k].set(x, y, z);
     set('pelvis', 0, 0.95 + bob - crouch, 0);
-    set('neck', 0, 1.48 + bob - crouch * 0.9, 0.02 * sw);
-    set('shL', -0.21, 1.43 + bob - crouch * 0.9, 0); set('shR', 0.21, 1.43 + bob - crouch * 0.9, 0);
+    set('neck', leanX, 1.48 + bob - crouch * 0.9, 0.02 * sw + leanZ + kick * 0.03);
+    set('shL', -0.21 + leanX, 1.43 + bob - crouch * 0.9, leanZ + kick * 0.03); set('shR', 0.21 + leanX, 1.43 + bob - crouch * 0.9, leanZ + kick * 0.03);
     set('hipL', -0.11, 0.93 + bob - crouch, 0); set('hipR', 0.11, 0.93 + bob - crouch, 0);
     const leg = (side, p) => {
       const swing = Math.sin(p) * 0.65 * sw + air * 0.3;
-      const bend = Math.max(0, Math.cos(p)) * 0.9 * sw + air * 0.9 + crouch * 2.2;
+      const bend = Math.max(0, Math.cos(p)) * 0.9 * sw + air * 1.1 + crouch * 2.2;
       const hip = J['hip' + side], kn = J['kn' + side], ft = J['ft' + side];
-      kn.set(hip.x, hip.y - 0.44 * Math.cos(swing), hip.z - 0.44 * Math.sin(swing));
-      ft.set(kn.x, kn.y - 0.44 * Math.cos(swing - bend), kn.z - 0.44 * Math.sin(swing - bend));
+      // thigh swings along the move direction; the knee always folds backwards
+      const sx0 = 0.44 * Math.sin(swing) * dx, sy0 = -0.44 * Math.cos(swing), sz0 = 0.44 * Math.sin(swing) * dz;
+      kn.set(hip.x + sx0, hip.y + sy0, hip.z + sz0);
+      const cb = Math.cos(bend), sb = Math.sin(bend);
+      ft.set(kn.x + sx0, kn.y + sy0 * cb + sz0 * sb, kn.z - sy0 * sb + sz0 * cb);
       if (ft.y < 0.05 && !air) ft.y = 0.05;
     };
     leg('L', ph); leg('R', ph + Math.PI);
     // arms / hands follow aim pitch around the chest pivot
     const P = HAND_POSES[kind] || HAND_POSES.rifle;
-    const pitch = a.pitch || 0, cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const pitch = (a.pitch || 0) + kick * 0.12 - rl * 0.35, cp = Math.cos(pitch), sp = Math.sin(pitch);
     const pivotY = 1.38 + bob - crouch * 0.9;
-    // rotate a hand position (x, y, z) about the chest pivot by the aim pitch
-    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0], pivotY + y * cp - z * sp, y * sp + z * cp); };
+    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0] + leanX, pivotY + y * cp - z * sp, y * sp + z * cp + leanZ + kick * 0.06); };
     rot(P.R, J.haR);
     if (P.L) rot(P.L, J.haL);
     else { // support hand on the foregrip
       J.haL.set(J.haR.x - 0.1, J.haR.y + sp * gunLen * 0.45, J.haR.z - cp * gunLen * 0.45);
     }
+    if (rl > 0) { J.haL.lerp(_v.set(J.haR.x - 0.06, J.haR.y - 0.22, J.haR.z - 0.1), rl); }     // hand down to the magazine
+    if (air) { J.haL.y += 0.05; J.haR.y += 0.03; }
     if (action > 0) {
       if (kind === 'knife') { J.haR.z -= Math.sin(action * Math.PI) * 0.35; J.haR.x -= Math.sin(action * Math.PI) * 0.3; }
       if (kind === 'nade') { J.haR.z -= action * 0.6; J.haR.y -= action * 0.4; }
@@ -217,9 +239,9 @@ export class Character {
     // elbows: halfway between shoulder and hand, pushed out and down
     J.elL.lerpVectors(J.shL, J.haL, 0.5).add(_v.set(-0.1, -0.12, 0.06));
     J.elR.lerpVectors(J.shR, J.haR, 0.5).add(_v.set(0.1, -0.12, 0.06));
-    J.head.set(0, J.neck.y + 0.2 * Math.cos(pitch * 0.5), J.neck.z - 0.2 * Math.sin(pitch * 0.5));
+    const hp = (a.pitch || 0) * 0.5;
+    J.head.set(J.neck.x, J.neck.y + 0.2 * Math.cos(hp), J.neck.z - 0.2 * Math.sin(hp));
     // to world
-    const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
     for (const k of JOINTS) {
       const j = J[k], x = j.x, z = j.z;
       j.set(a.pos.x + x * cy + z * sy, a.pos.y + j.y, a.pos.z - x * sy + z * cy);
@@ -228,7 +250,7 @@ export class Character {
     if (this.gun) {
       this.gun.visible = true;
       this.gun.position.copy(J.haR);
-      this.gun.rotation.set(kind === 'knife' ? pitch - 0.9 + action * 1.2 : pitch, a.yaw, 0, 'YXZ');
+      this.gun.rotation.set(kind === 'knife' ? pitch - 0.9 + action * 1.2 : pitch, a.yaw, rl * 0.6, 'YXZ');
     }
     this.shadow.visible = true;
     this.shadow.position.set(a.pos.x, a.pos.y + 0.02, a.pos.z);

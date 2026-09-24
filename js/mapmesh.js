@@ -1,7 +1,8 @@
 import * as THREE from '../lib/three.module.min.js';
 import { MAT } from './world.js';
 import { GeoBuilder } from './geom.js';
-import { tex, signTexture, siteDecal, skyTexture, radialTex } from './textures.js';
+import { tex, signTexture, siteDecal, radialTex, posterAtlas } from './textures.js';
+import { makeSky, makeSkyline } from './sky.js';
 
 const WALL_TEX = { sandstone: 'sandstone', plaster: 'plaster', plaster_pink: 'plaster_pink', stone: 'stone', metal: 'corrugated', brick: 'brick', concrete: 'concrete', panel: 'panel' };
 const INDOOR = 0.58;
@@ -20,7 +21,7 @@ export function buildMap(scene, def, quality = 'medium') {
   const added = [];
   const builders = new Map();
   const B = (name) => { if (!builders.has(name)) builders.set(name, new GeoBuilder()); return builders.get(name); };
-  const details = new GeoBuilder(), glow = new GeoBuilder();
+  const details = new GeoBuilder(), glow = new GeoBuilder(), posters = new GeoBuilder();
   const hash = (x, z, k = 0) => { const n = Math.sin(x * 127.1 + z * 311.7 + k * 74.7) * 43758.5453; return n - Math.floor(n); };
   const wallTexName = (m) => WALL_TEX[T.walls[m] || T.walls[0]] || 'concrete';
   const topTex = (m) => ({ [MAT.GROUND]: T.ground, [MAT.PLATFORM]: T.ground, [MAT.SAND]: 'sand', [MAT.TILES]: 'tiles', [MAT.ASPHALT]: 'asphalt', [MAT.CONCRETE]: 'concrete', [MAT.METAL]: 'metal', [MAT.WOOD]: 'wood', [MAT.CRATE]: 'crate', [MAT.CONTAINER]: 'container', [MAT.LOWWALL]: wallTexName(0) }[m] || T.ground);
@@ -95,6 +96,42 @@ export function buildMap(scene, def, quality = 'medium') {
       // cornice along the top edge
       const cx = x + 0.5 + dx * 0.5, cz = z + 0.5 + dz * 0.5;
       details.box(dx ? 0.16 : 1.0, 0.18, dz ? 0.16 : 1.0, cx, H - 0.25, cz, 0xcfc4b0);
+      const tall = top - nb;
+      // stone base course: a slightly proud plinth band along the foot of masonry walls
+      if (tn !== 'corrugated' && tn !== 'panel' && tall > 2) {
+        const ex = dz, ez = -dx, o = 0.06, bh = 0.7;
+        const qx = cx + dx * o, qz = cz + dz * o, a = [qx - ex * 0.5, qz - ez * 0.5], c = [qx + ex * 0.5, qz + ez * 0.5];
+        const along = dx !== 0 ? a[1] : a[0], u0 = along / 2 * (dx + dz);
+        B('basecourse').quad(V(a[0], nb, a[1]), V(c[0], nb, c[1]), V(c[0], nb + bh, c[1]), V(a[0], nb + bh, a[1]), 0xffffff, [u0, 0, u0 + 0.5, 0, u0 + 0.5, bh / 2, u0, bh / 2], [0.5, 0.5, 0.9, 0.9]);
+        const b0 = [cx - ex * 0.5, cz - ez * 0.5], b1 = [cx + ex * 0.5, cz + ez * 0.5];
+        B('basecourse').quad(V(a[0], nb + bh, a[1]), V(c[0], nb + bh, c[1]), V(b1[0], nb + bh, b1[1]), V(b0[0], nb + bh, b0[1]), 0xffffff, [0, 0, 0.5, 0, 0.5, 0.03, 0, 0.03], [1, 1, 1, 1]);
+      }
+      // posters and graffiti
+      if (tall > 3 && hash(x, z, 31 + dx + dz * 2) < 0.035) {
+        const k = Math.floor(hash(x, z, 5) * 8), gfx = k >= 4 || !T.windows;
+        const col = gfx ? k % 4 : k, row = gfx ? 0 : 0.5, pw = gfx ? 1.3 : 0.8, ph = gfx ? 0.65 : 1.05;
+        const px = cx + dx * 0.015, pz = cz + dz * 0.015, ex = dz * pw / 2, ez = -dx * pw / 2, py = nb + (gfx ? 1.1 : 1.6);
+        const u0 = col / 4, u1 = u0 + 0.25;
+        posters.quad(V(px - ex, py, pz - ez), V(px + ex, py, pz + ez), V(px + ex, py + ph, pz + ez), V(px - ex, py + ph, pz - ez), 0xffffff, [u0, row, u1, row, u1, row + 0.5, u0, row + 0.5], [1, 1, 1, 1]);
+      }
+      // loose rubble and debris at the foot of the wall
+      if (hash(x, z, 23 + dx + dz * 3) < 0.07) {
+        for (let k = 0; k < 4; k++) {
+          const r1 = hash(x, z, 40 + k), r2 = hash(x, z, 50 + k), sz = 0.07 + r1 * 0.12, off = 0.18 + r2 * 0.4;
+          details.box(sz * 1.4, sz * 0.7, sz, cx + dx * off + dz * (r1 - 0.5) * 0.8, nb + sz * 0.3, cz + dz * off - dx * (r1 - 0.5) * 0.8, [0x9a8a70, 0x7e7262, 0xb3a080][k % 3], r2 * 0.5, r1 * 6, 0);
+        }
+      }
+      // drainpipes and AC units
+      const hp = hash(x, z, 17 + dx * 5 + dz);
+      if (tall > 4 && hp < 0.03) {
+        details.cyl(0.07, 0.07, tall - 0.4, cx + dx * 0.12, nb + (tall - 0.4) / 2, cz + dz * 0.12, 0x6d7074, 6);
+        details.cyl(0.11, 0.07, 0.25, cx + dx * 0.12, nb + 0.15, cz + dz * 0.12, 0x5a5d60, 6);
+      } else if (tall > 4.5 && hp > 0.975) {
+        const ax = cx + dx * 0.32, az = cz + dz * 0.32, ay = nb + 3.9;
+        details.box(dx ? 0.6 : 0.95, 0.65, dz ? 0.6 : 0.95, ax, ay, az, 0xd8d8d2);
+        details.box(dx ? 0.04 : 0.7, 0.5, dz ? 0.04 : 0.7, ax + dx * 0.31, ay, az + dz * 0.31, 0x3a3c3e);
+        details.box(dx ? 0.5 : 0.06, 0.06, dz ? 0.06 : 0.5, ax - dx * 0.05 + dz * 0.3, ay - 0.36, az - dz * 0.05 - dx * 0.3, 0x55585a);
+      }
       // windows and doors on tall open-air walls
       if (T.windows && H - nb >= 5 && hash(x, z, dx + dz * 2) < 0.12) {
         const ox = cx + dx * 0.02, oz = cz + dz * 0.02, y = nb + 3.3;
@@ -233,8 +270,8 @@ export function buildMap(scene, def, quality = 'medium') {
         break;
       }
       case 'silo': {
-        d.cyl(p.r, p.r, p.h, p.x, p.y + p.h / 2, p.z, 0xc8ccd0, 24);
-        d.sphere(p.r, p.x, p.y + p.h, p.z, 0xb8bcc0, 16, 0.35);
+        d.cyl(p.r, p.r, p.h, p.x, p.y + p.h / 2, p.z, 0xa4aaae, 24);
+        d.sphere(p.r, p.x, p.y + p.h, p.z, 0x969ca0, 16, 0.35);
         for (let k = 0; k < 4; k++) d.cyl(p.r + 0.06, p.r + 0.06, 0.25, p.x, p.y + 2 + k * 3.6, p.z, 0x8a9096, 24);
         break;
       }
@@ -247,10 +284,19 @@ export function buildMap(scene, def, quality = 'medium') {
     if (!Z) continue;
     const cx = Math.round((Z.x0 + Z.x1) / 2), cz = Math.round((Z.z0 + Z.z1) / 2);
     let sx = cx, sz = cz;
-    // pick a flat, open spot near the center
-    outer: for (let r = 0; r < 8; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    // pick a flat, open 5x5 patch near the center so the decal never floats
+    const FLOORISH = [MAT.GROUND, MAT.CONCRETE, MAT.TILES, MAT.ASPHALT, MAT.METAL, MAT.WOOD, MAT.PLATFORM];
+    const flat = (x, z) => {
+      const h0 = hgt(x, z);
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+        const cx2 = x + dx, cz2 = z + dz;
+        if (wall(cx2, cz2) || Math.abs(hgt(cx2, cz2) - h0) > 0.01 || !FLOORISH.includes(def.mat[I(cx2, cz2)])) return false;
+      }
+      return true;
+    };
+    outer: for (let r = 0; r < 10; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
       const x = cx + dx, z = cz + dz;
-      if (!wall(x, z) && [MAT.GROUND, MAT.CONCRETE, MAT.TILES, MAT.ASPHALT, MAT.METAL].includes(def.mat[I(x, z)])) { sx = x; sz = z; break outer; }
+      if (!wall(x, z) && flat(x, z)) { sx = x; sz = z; break outer; }
     }
     const dcl = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.MeshBasicMaterial({ map: siteDecal(k), transparent: true, depthWrite: false, fog: true }));
     dcl.rotation.x = -Math.PI / 2; dcl.position.set(sx + 0.5, hgt(sx, sz) + 0.03, sz + 0.5);
@@ -258,29 +304,68 @@ export function buildMap(scene, def, quality = 'medium') {
   }
 
   // ---------- meshes ----------
+  const shadows = quality !== 'low';
   for (const [name, b] of builders) {
     if (!b.count) continue;
-    const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ map: tex(name), vertexColors: true }));
+    const mesh = new THREE.Mesh(b.build(), mapMaterial(name, quality));
+    mesh.castShadow = mesh.receiveShadow = shadows;
     scene.add(mesh); added.push(mesh);
   }
-  if (details.count) { const m = new THREE.Mesh(details.build(), new THREE.MeshLambertMaterial({ vertexColors: true })); scene.add(m); added.push(m); }
+  if (details.count) {
+    const m = new THREE.Mesh(details.build(), new THREE.MeshLambertMaterial({ vertexColors: true, shadowSide: THREE.DoubleSide }));
+    m.castShadow = m.receiveShadow = shadows; scene.add(m); added.push(m);
+  }
+  if (posters.count) {
+    const m = new THREE.Mesh(posters.build(), new THREE.MeshLambertMaterial({ map: posterAtlas(), vertexColors: true, transparent: true, alphaTest: 0.1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.receiveShadow = shadows; scene.add(m); added.push(m);
+  }
   if (glow.count) { const m = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true })); scene.add(m); added.push(m); }
 
   // Base ground far below everything so there are never holes to the void
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(w + 200, h + 200), new THREE.MeshLambertMaterial({ map: tex(T.ground) }));
-  ground.material.map = ground.material.map.clone(); ground.material.map.repeat.set((w + 200) / 2, (h + 200) / 2); ground.material.map.needsUpdate = true;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(w + 200, h + 200), new THREE.MeshLambertMaterial({ map: tex(T.ground, quality) }));
+  ground.material.map = ground.material.map.clone(); ground.material.map.userData.owned = true; ground.material.map.repeat.set((w + 200) / 2, (h + 200) / 2); ground.material.map.needsUpdate = true;
   ground.rotation.x = -Math.PI / 2; ground.position.set(w / 2, -0.02, h / 2);
+  ground.receiveShadow = shadows;
   scene.add(ground); added.push(ground);
 
-  // Sky, fog and light
-  scene.background = skyTexture(T.sky);
+  // ---------- sky, fog and light ----------
+  const sunDir = new THREE.Vector3(...(T.sunPos || [40, 80, 30])).normalize();
+  const sky = makeSky(T, sunDir), skyline = makeSkyline(T, def);
+  scene.background = new THREE.Color(T.sky[2]);
+  scene.add(sky, skyline); added.push(sky, skyline);
   scene.fog = new THREE.Fog(T.fog, T.fogNear, T.fogFar);
-  const hemi = new THREE.HemisphereLight(T.hemi[0], T.hemi[1], T.hemiI ?? 1.8);
-  const sun = new THREE.DirectionalLight(T.sun, T.sunI ?? 1.6);
-  sun.position.set(...(T.sunPos || [40, 80, 30]));
-  scene.add(hemi, sun); added.push(hemi, sun);
+  const hemi = new THREE.HemisphereLight(T.hemi[0], T.hemi[1], (T.hemiI ?? 1.8) * (shadows ? 0.9 : 1));
+  const sun = new THREE.DirectionalLight(T.sun, (T.sunI ?? 1.6) * (shadows ? 1.75 : 1.1));
+  const center = new THREE.Vector3(w / 2, 0, h / 2);
+  sun.position.copy(center).addScaledVector(sunDir, 150);
+  sun.target.position.copy(center);
+  if (shadows) {
+    // The map never moves, so the shadow map is rendered once (renderer.shadowMap.autoUpdate = false)
+    sun.castShadow = true;
+    const size = quality === 'high' ? 4096 : 2048, half = Math.max(w, h) * 0.78;
+    sun.shadow.mapSize.set(size, size);
+    Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 320 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+  }
+  sun.userData.sun = true;
+  scene.add(hemi, sun, sun.target); added.push(hemi, sun, sun.target);
   return added;
 }
+
+// Map surface material (tiling color texture + bump map on medium/high)
+const matCache = new Map();
+function mapMaterial(name, quality) {
+  const key = name + quality;
+  if (!matCache.has(key)) {
+    const m = new THREE.MeshLambertMaterial({ map: tex(name, quality), vertexColors: true, shadowSide: THREE.DoubleSide });
+    const bump = quality !== 'low' ? tex(name + ':bump', quality) : null;
+    if (bump) { m.bumpMap = bump; m.bumpScale = BUMP[name] ?? 1.2; }
+    matCache.set(key, m);
+  }
+  return matCache.get(key);
+}
+const BUMP = { sand: 0.8, cobble: 2.2, tiles: 1.2, wood: 1.4, metal: 1.8, sandstone: 2.4, stone: 2.4, brick: 2.2, corrugated: 1.6, crate: 1.5, container: 1.4, plaster: 1.2, plaster_pink: 1.2, concrete: 1.0, asphalt: 0.8, panel: 1.2, ceiling: 1.0, basecourse: 2.6 };
 
 // Pre-rendered top-down minimap image
 export function renderMinimap(def, size) {

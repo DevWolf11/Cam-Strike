@@ -91,13 +91,31 @@ $('pauseLayout').onclick = editLayout;
 // ---------- Renderer ----------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+// The sun never moves and the map never changes, so its shadow map is drawn once per match
+renderer.shadowMap.autoUpdate = false;
 const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 260);
 let scene = null, game = null, ctrl = null, hud = null, paused = false, running = false, lastTeam = 'T';
+// Dynamic resolution: if the device can't hold ~45 fps the render resolution drops in steps
+// (down to half), and climbs back when there's headroom again.
+let dynScale = 1, frameAvg = 1 / 60, perfT = -2;
+const dynRes = !new URLSearchParams(location.search).has('fixedres');
+function adaptResolution(rawDt) {
+  frameAvg += (Math.min(rawDt, 0.2) - frameAvg) * 0.05;
+  perfT += rawDt;
+  if (perfT < 1.5) return;
+  let next = dynScale;
+  if (frameAvg > 1 / 44 && dynScale > 0.5) next = Math.max(0.5, dynScale * 0.87);
+  else if (frameAvg < 1 / 57 && dynScale < 1) next = Math.min(1, dynScale * 1.08);
+  if (next !== dynScale) { dynScale = next; perfT = 0; resize(); }
+  else perfT = 1;       // keep checking every ~0.5s once settled
+}
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   const q = QUALITY[settings.quality] || 1;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * q * (w * h > 1.2e6 ? 0.8 : 1));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * q * (w * h > 1.2e6 ? 0.8 : 1) * dynScale);
   renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
   $('rotate').classList.toggle('hidden', !(input.touch && h > w && running));
@@ -113,11 +131,17 @@ function beginMatch(makeGame) {
   initAudio();
   goFullscreen();
   disposeScene();
+  const q = settings.quality;
+  renderer.shadowMap.enabled = q !== 'low';
+  renderer.shadowMap.type = q === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   scene = new THREE.Scene();
   game = makeGame(scene);
+  renderer.shadowMap.needsUpdate = true;
+  game.effects.precompile(renderer, camera);
+  perfT = -2; frameAvg = 1 / 60;          // grace period while shaders compile
   ctrl = new PlayerController(game, camera, settings);
   hud = new HUD(game, ctrl, { matchOver });
-  window.__game = game; window.__ctrl = ctrl;
+  window.__game = game; window.__ctrl = ctrl; window.__renderer = renderer;
   for (const id of ['menu', 'over', 'lobby']) $(id).classList.add('hidden');
   $('hud').classList.remove('hidden');
   $('touch').classList.toggle('hidden', !input.touch);
@@ -169,7 +193,7 @@ function disposeScene() {
   scene.traverse((o) => {
     o.geometry?.dispose();
     const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-    for (const m of mats) m.dispose();
+    for (const m of mats) { if (m.map?.userData.owned) m.map.dispose(); m.dispose(); }
   });
   scene = game = ctrl = hud = null;
   if (net) net.game = null;
@@ -309,9 +333,10 @@ if (joinCode) {
 let lastT = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - lastT) / 1000);
+  const raw = (now - lastT) / 1000, dt = Math.min(0.05, raw);
   lastT = now;
   if (!running || !game) return;
+  if (dynRes && !document.hidden && !paused) adaptResolution(raw);
   if (consume('pause')) setPaused(!paused);
   const editing = document.body.classList.contains('editing');
   // Online the match keeps running while your menu is open (you can't pause your friends)

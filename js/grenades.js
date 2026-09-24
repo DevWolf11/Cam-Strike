@@ -2,7 +2,7 @@ import * as THREE from '../lib/three.module.min.js';
 import { GRENADES } from './config.js';
 import { world, pointBlocked, hasLOS, groundAt } from './world.js';
 import { grenadeGeometry } from './weapons3d.js';
-import { radialTex } from './textures.js';
+import { radialTex, puffTex } from './textures.js';
 import * as SFX from './audio.js';
 
 const plain = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -15,7 +15,7 @@ export class Grenades {
     this.flying = [];
     this.smokes = [];
     this.fires = [];
-    this.smokeTex = radialTex('rgba(210,210,205,1)', 'rgba(210,210,205,0)');
+    this.smokeTex = puffTex();
     this.fireTex = radialTex('rgba(255,210,90,1)', 'rgba(255,60,10,0)');
     this.visualOnly = false;      // network clients only draw; the host decides damage
   }
@@ -68,7 +68,8 @@ export class Grenades {
       for (const p of s.puffs) {
         p.sprite.position.set(s.x + p.ox * grow, s.y + p.oy * grow + Math.sin(s.t * 0.4 + p.ph) * 0.15, s.z + p.oz * grow);
         p.sprite.scale.setScalar(p.size * (0.4 + 0.6 * grow));
-        p.sprite.material.opacity = 0.92 * fade;
+        p.sprite.material.opacity = 0.97 * fade;
+        p.sprite.material.rotation = p.ph + s.t * 0.05 * (p.ph > 3 ? 1 : -1);
       }
       if (s.t >= s.dur) {
         for (const p of s.puffs) this.scene.remove(p.sprite);
@@ -87,6 +88,14 @@ export class Grenades {
         const flick = 0.75 + Math.sin(f.t * 14 + p.ph) * 0.25;
         p.sprite.scale.set(p.size * flick, p.size * 1.6 * flick, 1);
         p.sprite.material.opacity = fade;
+      }
+      // smoke and embers rising off the flames
+      f.smokeT = (f.smokeT || 0) - dt;
+      if (f.smokeT <= 0 && fade > 0.2) {
+        f.smokeT = 0.18;
+        const p = f.flames[Math.floor(Math.random() * f.flames.length)].sprite.position;
+        this.g.effects.puff(new THREE.Vector3(p.x, p.y + 0.8, p.z), 0x2e2a26, 1.1 + Math.random() * 0.8, 2.2, 1.6, 0.45);
+        this.g.effects.sparks.emit(p.x, p.y, p.z, (Math.random() - 0.5) * 0.8, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 0.8, 0.8 + Math.random() * 0.6, 1, 0.55, 0.15);
       }
       if (f.tick <= 0 && !this.visualOnly) {
         f.tick = 0.25;
@@ -146,7 +155,7 @@ export class Grenades {
       g.effects.explode(P.clone(), 0.45);
       SFX.heBoom(snd.dist);
     } else if (type === 'flash') {
-      g.effects.flash(P.clone(), 3.5);
+      g.effects.flash(P.clone(), 6, 0.25); g.effects.pointLight(P, 40, 0.3);
       SFX.flashBang(snd.dist);
     } else if (type === 'smoke') {
       SFX.smokePop(snd.dist);
@@ -154,8 +163,8 @@ export class Grenades {
       const w = { x: P.x, y: gy + 1.5, z: P.z, r: 0 };
       world.smokes.push(w);
       const puffs = [];
-      for (let k = 0; k < 16; k++) {
-        const a = k / 16 * Math.PI * 2, rr = 1 + Math.random() * 2.6;
+      for (let k = 0; k < 24; k++) {
+        const a = k / 24 * Math.PI * 2 + Math.random() * 0.3, rr = 0.6 + Math.random() * 2.8;
         const mat = new THREE.SpriteMaterial({ map: this.smokeTex, transparent: true, depthWrite: false, color: new THREE.Color().setHSL(0.1, 0.03, 0.55 + Math.random() * 0.15), opacity: 0 });
         const sp = new THREE.Sprite(mat);
         this.scene.add(sp);

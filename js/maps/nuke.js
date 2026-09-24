@@ -10,6 +10,7 @@ export default function nuke() {
   const m = makeMap({
     id: 'nuke', name: 'Nuke', w: 128, h: 112,
     theme: {
+      clouds: 0.65, cloud: 0xf2f5f8, skyline: 'powerplant',
       ground: 'concrete', walls: ['concrete', 'metal', 'panel', 'metal', 'brick'],
       sky: ['#6f9fd0', '#b4d0e8', '#e2e6e6'], fog: 0xcdd6dc, fogNear: 50, fogFar: 160,
       sun: 0xffffff, sunPos: [40, 100, 60], hemi: [0xf0f4ff, 0x6a6a70], hemiI: 1.8, sunI: 1.4, wallH: 10, windows: false,

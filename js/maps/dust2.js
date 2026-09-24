@@ -6,6 +6,7 @@ export default function dust2() {
   const m = makeMap({
     id: 'dust2', name: 'Dust II', w: 128, h: 128,
     theme: {
+      clouds: 0.35, cloud: 0xfff4e4, skyline: 'desert',
       ground: 'sand', walls: ['sandstone', 'plaster', 'sandstone', 'metal', 'brick'],
       sky: ['#5c9ad6', '#a6c8e6', '#ead9b4'], fog: 0xdcceb0, fogNear: 55, fogFar: 170,
       sun: 0xffe2b0, sunPos: [60, 90, 30], hemi: [0xfff4e0, 0x8a7355], hemiI: 1.8, sunI: 1.7, wallH: 6, windows: true,
