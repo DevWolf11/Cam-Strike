@@ -212,6 +212,31 @@ select { background: #221c14; color: var(--txt); border: 1px solid var(--line); 
 .skin small { opacity: 0.7; font-size: 11px; color: var(--rar); }
 .skin.on { outline: 2px solid var(--accent); }
 
+/* Multiplayer */
+.mp { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(200px, 1.2fr); gap: 10px; align-items: end; text-align: left; }
+.mp .menu-btn { margin: 0; }
+.mp input, .mp-join input { background: #221c14; color: var(--txt); border: 1px solid var(--line); border-radius: 8px; padding: 11px 10px; font: inherit; width: 100%; }
+.mp-join { display: flex; gap: 6px; }
+.mp-join input { text-transform: uppercase; letter-spacing: 3px; font-weight: 800; }
+.mp-join .menu-btn { width: auto; padding-inline: 18px; }
+@media (max-width: 560px) { .mp { grid-template-columns: 1fr; } }
+#mpStatus.err { color: #ff8a7a; opacity: 1; }
+.room-code { font-size: 22px; font-weight: 900; letter-spacing: 5px; color: var(--accent) !important; }
+.chip-btn { width: auto !important; margin: 0 !important; padding: 7px 12px !important; font-size: 13px !important; }
+.lb-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+.lb-team { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: rgba(255,255,255,0.03); }
+.lb-team h3 { margin: 0 0 6px; font-size: 15px; }
+.lb-team.t h3 { color: var(--t); } .lb-team.ct h3 { color: var(--ct); }
+.lb-team ul { list-style: none; margin: 0; padding: 0; min-height: 60px; }
+.lb-team li { padding: 6px 4px; border-top: 1px solid var(--line); font-size: 14px; }
+.lb-team li.me { color: var(--accent); font-weight: 700; }
+.lb-team li small { opacity: 0.6; margin-left: 6px; }
+.lb-team .menu-btn { margin-top: 8px; padding: 8px; font-size: 13px; }
+.lb-host { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.lb-host .field { flex: 1 1 160px; }
+.lb-host .menu-btn { flex: 1 1 200px; width: auto; margin: 0; }
+@media (max-width: 560px) { .lb-teams { grid-template-columns: 1fr; } }
+
 #rotate { position: fixed; inset: 0; z-index: 50; background: #14110d; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 18px; }
 #rotate div { font-size: 64px; animation: spin 2s ease-in-out infinite; }
 @keyframes spin { 0%, 30% { transform: rotate(0); } 70%, 100% { transform: rotate(90deg); } }

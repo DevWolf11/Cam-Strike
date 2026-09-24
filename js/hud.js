@@ -68,9 +68,10 @@ export class HUD {
       if (v === p) this.center('You died', '', k && k !== p ? `Killed by ${k.name}${k.team === p.team ? ' (teammate)' : ''} · ${ICON[d.weapon] || d.weapon}` : '', 2.5);
       else if (k === p && !d.teamkill) this.sub(`Killed ${v.name}${d.head ? ' (headshot)' : ''}  +$${WEAPONS[d.weapon]?.kill ?? 300}`, 2);
     } else if (type === 'msg') {
-      if (d.team && d.team !== p.team) return;
+      if ((d.team && d.team !== p.team) || (d.to && d.to !== p)) return;
       if (d.big) this.center(d.text, 'T', '', 2.5); else this.sub(d.text, d.warn ? 3.5 : 3, d.warn);
     } else if (type === 'hurt') {
+      if (d.agent !== p) return;
       const vg = this.el['dmg-vignette'];
       vg.style.transition = 'none'; vg.style.opacity = Math.min(1, 0.3 + d.dmg / 60);
       requestAnimationFrame(() => { vg.style.transition = 'opacity 0.5s'; vg.style.opacity = 0; });
@@ -81,7 +82,7 @@ export class HUD {
         requestAnimationFrame(() => { dd.style.transition = 'opacity 0.8s'; dd.style.opacity = 0; });
       }
     } else if (type === 'shot') {
-      if (d.hit) { this.hitT = 0.18; this.el.hitmarker.className = d.team ? 'team' : d.head ? 'head' : ''; }
+      if (d.agent === p && d.hit) { this.hitT = 0.18; this.el.hitmarker.className = d.team ? 'team' : d.head ? 'head' : ''; }
     } else if (type === 'matchOver') {
       this.hooks.matchOver(d.winner);
     }

@@ -17,6 +17,7 @@ export class Grenades {
     this.fires = [];
     this.smokeTex = radialTex('rgba(210,210,205,1)', 'rgba(210,210,205,0)');
     this.fireTex = radialTex('rgba(255,210,90,1)', 'rgba(255,60,10,0)');
+    this.visualOnly = false;      // network clients only draw; the host decides damage
   }
 
   // Launch from an agent's eye along yaw/pitch. power 0..1 (short lob vs long throw)
@@ -55,7 +56,7 @@ export class Grenades {
       }
       n.mesh.position.copy(n.pos);
       n.mesh.rotation.x += dt * 8; n.mesh.rotation.z += dt * 5;
-      if (n.t >= def.fuse) { this.detonate(n); this.scene.remove(n.mesh); this.flying.splice(i, 1); }
+      if (n.t >= def.fuse && !this.visualOnly) { this.detonate(n); this.scene.remove(n.mesh); this.flying.splice(i, 1); }
     }
 
     // --- smoke clouds ---
@@ -87,7 +88,7 @@ export class Grenades {
         p.sprite.scale.set(p.size * flick, p.size * 1.6 * flick, 1);
         p.sprite.material.opacity = fade;
       }
-      if (f.tick <= 0) {
+      if (f.tick <= 0 && !this.visualOnly) {
         f.tick = 0.25;
         SFX.fireCrackle(this.g.soundFrom(f).dist);
         for (const a of this.g.agents) {
@@ -102,12 +103,11 @@ export class Grenades {
     }
   }
 
+  // Host: apply the grenade's gameplay effect, then show it everywhere.
   detonate(n) {
-    const g = this.g, P = n.pos, snd = g.soundFrom(P);
+    const g = this.g, P = n.pos;
     if (n.type === 'he') {
       const def = GRENADES.he;
-      g.effects.explode(P.clone(), 0.45);
-      SFX.heBoom(snd.dist);
       for (const a of g.agents) {
         if (!a.alive) continue;
         const d = Math.hypot(a.pos.x - P.x, a.pos.y + 1 - P.y, a.pos.z - P.z);
@@ -117,8 +117,6 @@ export class Grenades {
         g.applyDamage(a, n.owner, 'he', dmg, false, dir);
       }
     } else if (n.type === 'flash') {
-      g.effects.flash(P.clone(), 3.5);
-      SFX.flashBang(snd.dist);
       for (const a of g.agents) {
         if (!a.alive) continue;
         const ex = a.pos.x, ey = a.eyeY, ez = a.pos.z;
@@ -131,11 +129,26 @@ export class Grenades {
         const t = 4.2 * facing * (1 - d / GRENADES.flash.radius * 0.6);
         if (t < 0.3) continue;
         a.blindT = Math.max(a.blindT || 0, t);
-        a.blindMax = Math.max(a.blindT, a.blindMax || 0);
-        if (a === g.player) { SFX.ringing(t); g.emit('flashed', { t }); }
+        if (a === g.player) SFX.ringing(t);
+        if (a.human) g.emit('flashed', { agent: a, t });
         if (n.owner && n.owner !== a && a.team !== n.owner.team && a.isBot) a.ai.heard = { x: n.owner.pos.x, z: n.owner.pos.z, t: g.time };
       }
-    } else if (n.type === 'smoke') {
+    }
+    const fx = this.fx(n.type, P.x, P.y, P.z, n.owner);
+    g.emit('fxDetonate', { type: n.type, x: P.x, y: P.y, z: P.z, owner: n.owner });
+    return fx;
+  }
+
+  // Visuals + sound of a detonation (runs on host and clients)
+  fx(type, x, y, z, owner = null) {
+    const g = this.g, P = new THREE.Vector3(x, y, z), snd = g.soundFrom(P);
+    if (type === 'he') {
+      g.effects.explode(P.clone(), 0.45);
+      SFX.heBoom(snd.dist);
+    } else if (type === 'flash') {
+      g.effects.flash(P.clone(), 3.5);
+      SFX.flashBang(snd.dist);
+    } else if (type === 'smoke') {
       SFX.smokePop(snd.dist);
       const gy = groundAt(P.x, P.z, 0.2);
       const w = { x: P.x, y: gy + 1.5, z: P.z, r: 0 };
@@ -149,7 +162,7 @@ export class Grenades {
         puffs.push({ sprite: sp, ox: Math.cos(a) * rr, oy: -0.6 + Math.random() * 2.6, oz: Math.sin(a) * rr, size: 3.5 + Math.random() * 2.5, ph: Math.random() * 6 });
       }
       this.smokes.push({ x: P.x, y: gy + 1.5, z: P.z, t: 0, dur: GRENADES.smoke.duration, puffs, w });
-    } else if (n.type === 'molotov') {
+    } else if (type === 'molotov') {
       SFX.fireWhoosh(snd.dist);
       const gy = groundAt(P.x, P.z, 0.2);
       const flames = [];
@@ -162,7 +175,7 @@ export class Grenades {
         this.scene.add(sp);
         flames.push({ sprite: sp, size, ph: Math.random() * 6 });
       }
-      this.fires.push({ x: P.x, y: gy, z: P.z, r: GRENADES.molotov.radius, t: 0, dur: GRENADES.molotov.duration, tick: 0, flames, owner: n.owner });
+      this.fires.push({ x: P.x, y: gy, z: P.z, r: GRENADES.molotov.radius, t: 0, dur: GRENADES.molotov.duration, tick: 0, flames, owner });
     }
   }
 

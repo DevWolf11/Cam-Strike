@@ -1,5 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
-import { Game } from './game.js';
+import { Game, buildRoster } from './game.js';
+import { ClientGame } from './netgame.js';
+import { NetHost, NetClient } from './net.js';
 import { PlayerController } from './player.js';
 import { HUD } from './hud.js';
 import { input, initInput, consume, resetInput, releasePointer } from './input.js';
@@ -17,6 +19,7 @@ const DEFAULTS = {
   mode: 'competitive', map: 'dust2',
   custom: { tCount: 5, ctCount: 5, roundsToWin: 8, startMoney: 800, roundTime: 115, friendlyFire: true },
   loadout: { skins: {}, knifeType: 'classic', knifeSkin: 'factory' }, outfit: { T: 0, CT: 0 },
+  name: 'Player' + Math.floor(100 + Math.random() * 900),
 };
 const settings = load();
 function load() {
@@ -103,24 +106,19 @@ function resize() {
 window.addEventListener('resize', resize);
 initInput(canvas, $('touch'));
 
-function startMatch(team) {
-  lastTeam = team;
+// Shared setup for solo, host and client matches
+function beginMatch(makeGame) {
   Object.assign(settings, { difficulty: $('difficulty').value, quality: $('quality').value, aimAssist: $('aimAssist').checked });
   save();
   initAudio();
   goFullscreen();
   disposeScene();
   scene = new THREE.Scene();
-  const custom = settings.mode === 'custom';
-  game = new Game(scene, camera, {
-    team, difficulty: settings.difficulty, mode: settings.mode, map: settings.map, quality: settings.quality,
-    loadout: settings.loadout, outfit: settings.outfit,
-    ...(custom ? { tCount: C.tCount, ctCount: C.ctCount, roundsToWin: C.roundsToWin, startMoney: C.startMoney, roundTime: C.roundTime, friendlyFire: C.friendlyFire } : {}),
-  });
+  game = makeGame(scene);
   ctrl = new PlayerController(game, camera, settings);
   hud = new HUD(game, ctrl, { matchOver });
   window.__game = game; window.__ctrl = ctrl;
-  $('menu').classList.add('hidden'); $('over').classList.add('hidden');
+  for (const id of ['menu', 'over', 'lobby']) $(id).classList.add('hidden');
   $('hud').classList.remove('hidden');
   $('touch').classList.toggle('hidden', !input.touch);
   resetInput();
@@ -128,18 +126,37 @@ function startMatch(team) {
   resize();
 }
 
+// Match options chosen in the menu (shared by solo and hosted games)
+function matchOpts(extra = {}) {
+  const custom = settings.mode === 'custom';
+  return {
+    difficulty: $('difficulty').value, mode: settings.mode, map: settings.map,
+    ...(custom ? { tCount: C.tCount, ctCount: C.ctCount, roundsToWin: C.roundsToWin, startMoney: C.startMoney, roundTime: C.roundTime, friendlyFire: C.friendlyFire } : {}),
+    ...extra,
+  };
+}
+
+function startMatch(team) {
+  lastTeam = team;
+  beginMatch((sc) => new Game(sc, camera, { ...matchOpts(), team, quality: $('quality').value, loadout: settings.loadout, outfit: settings.outfit }));
+}
+
 function matchOver(winner) {
   const won = winner === game.player.team;
   $('overTitle').textContent = won ? 'Victory' : 'Defeat';
   $('overTitle').style.color = won ? '#8fe07a' : '#ff4a3a';
   $('overScore').textContent = `${game.mapDef.name} · Terrorists ${game.score.T} - ${game.score.CT} Counter-Terrorists · K/D ${game.player.kills}/${game.player.deaths}`;
+  $('again').textContent = net ? 'Back to lobby' : 'Play again';
+  $('again').classList.toggle('hidden', net?.role === 'client');
+  $('overWait').classList.toggle('hidden', net?.role !== 'client');
   $('over').classList.remove('hidden');
   releasePointer();
 }
 
 function quitToMenu() {
+  if (net) { net.close(); net = null; }
   running = false; paused = false; input.enabled = false;
-  for (const id of ['pause', 'over', 'hud', 'touch', 'buy', 'scoreboard']) $(id).classList.add('hidden');
+  for (const id of ['pause', 'over', 'hud', 'touch', 'buy', 'scoreboard', 'lobby']) $(id).classList.add('hidden');
   $('scope').classList.add('hidden'); $('flashbang').style.opacity = 0;
   $('menu').classList.remove('hidden');
   disposeScene();
@@ -155,11 +172,13 @@ function disposeScene() {
     for (const m of mats) m.dispose();
   });
   scene = game = ctrl = hud = null;
+  if (net) net.game = null;
 }
 
 function setPaused(p) {
   paused = p;
   $('pause').classList.toggle('hidden', !p);
+  $('quit').textContent = net ? 'Leave match' : 'Quit to menu';
   if (p) { resetInput(); releasePointer(); }
 }
 
@@ -172,7 +191,10 @@ async function goFullscreen() {
 }
 
 document.querySelectorAll('.team-btn').forEach((b) => b.addEventListener('click', () => startMatch(b.dataset.team)));
-$('again').onclick = () => startMatch(lastTeam);
+$('again').onclick = () => {
+  if (net?.role === 'host') { net.backToLobby(); stopMatchToLobby(); }
+  else startMatch(lastTeam);
+};
 $('toMenu').onclick = quitToMenu;
 $('resume').onclick = () => setPaused(false);
 $('quit').onclick = quitToMenu;
@@ -181,7 +203,107 @@ document.addEventListener('pointerlockchange', () => {
   if (input.expectUnlock) { input.expectUnlock = false; return; }
   if (running && !paused && game && game.phase !== 'over') setPaused(true);
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && running && game?.phase !== 'over') setPaused(true); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && running && !net && game?.phase !== 'over') setPaused(true); });
+
+// ---------- Multiplayer ----------
+let net = null, lobbyState = null;
+$('mpName').value = settings.name;
+$('mpName').oninput = () => { settings.name = $('mpName').value.trim().slice(0, 16) || 'Player'; save(); };
+const me = () => ({ name: settings.name, outfit: settings.outfit, loadout: settings.loadout });
+const mpStatus = (text, err = false) => { $('mpStatus').textContent = text; $('mpStatus').classList.toggle('err', err); };
+$('lbMap').innerHTML = MAP_LIST.map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
+
+$('mpHost').onclick = async () => {
+  if (net) return;
+  mpStatus('Creating room…');
+  try {
+    net = new NetHost(me(), { onLobby: renderLobby, onError: (m) => mpStatus(m, true) });
+    await net.open();
+    net.setSettings({ map: settings.map, mode: settings.mode, fillBots: true, desc: modeDesc() });
+    mpStatus('');
+    showLobby();
+  } catch (e) { net = null; mpStatus(e.message, true); }
+};
+$('mpJoin').onclick = async () => {
+  if (net) return;
+  const code = $('mpCode').value.trim();
+  if (code.length < 5) { mpStatus('Enter the 5-letter room code from your friend.', true); return; }
+  mpStatus('Joining…');
+  try {
+    net = new NetClient(me(), {
+      onLobby: renderLobby,
+      onStart: startClientMatch,
+      onEnd: () => { stopMatchToLobby(); },
+      onClose: (reason) => { net = null; quitToMenu(); mpStatus(reason, true); },
+    });
+    await net.join(code);
+    mpStatus('');
+    showLobby();
+  } catch (e) { net = null; mpStatus(e.message, true); }
+};
+$('mpCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('mpJoin').click(); });
+
+function modeDesc() {
+  return settings.mode === 'custom' ? `Custom · first to ${C.roundsToWin} · FF ${C.friendlyFire ? 'on' : 'off'}` : 'Competitive · first to 8 · FF on';
+}
+function inviteLink() { return `${location.origin}${location.pathname}?join=${net.code}`; }
+
+function showLobby() {
+  $('menu').classList.add('hidden');
+  $('lobby').classList.remove('hidden');
+  if (lobbyState) renderLobby(lobbyState);
+}
+function renderLobby(l) {
+  lobbyState = l;
+  if (!net) return;
+  const host = net.role === 'host', myPid = host ? 'host' : net.pid;
+  $('lbCode').textContent = l.code || net.code || '';
+  const mapName = MAP_LIST.find((m) => m.id === l.settings.map)?.name || l.settings.map;
+  $('lbInfo').textContent = `${mapName} · ${l.settings.desc || ''} · ${l.players.length}/10 players${l.settings.fillBots ? ' · bots fill empty slots' : ''}`;
+  for (const t of ['T', 'CT']) {
+    $('lb' + t).innerHTML = l.players.filter((p) => p.team === t).map((p) => `<li class="${p.pid === myPid ? 'me' : ''}">${esc(p.name)}${p.pid === 'host' ? '<small>host</small>' : ''}${p.pid === myPid ? '<small>you</small>' : ''}</li>`).join('') || '<li><small>empty</small></li>';
+  }
+  $('lbHost').classList.toggle('hidden', !host);
+  $('lbWait').classList.toggle('hidden', host);
+  if (host) { $('lbMap').value = l.settings.map; $('lbBots').checked = l.settings.fillBots !== false; }
+}
+document.querySelectorAll('[data-join]').forEach((b) => b.addEventListener('click', () => net?.setTeam(b.dataset.join)));
+$('lbMap').onchange = () => { settings.map = $('lbMap').value; save(); markMap(); net?.setSettings({ map: settings.map }); };
+$('lbBots').onchange = () => net?.setSettings({ fillBots: $('lbBots').checked });
+$('lbLeave').onclick = () => { quitToMenu(); $('lobby').classList.add('hidden'); };
+$('lbCopy').onclick = async () => {
+  const link = inviteLink();
+  try { await navigator.clipboard.writeText(link); $('lbCopy').textContent = 'Link copied'; }
+  catch { prompt('Copy this invite link:', link); }
+  setTimeout(() => { $('lbCopy').textContent = 'Copy invite link'; }, 2000);
+};
+$('lbStart').onclick = () => {
+  if (net?.role !== 'host') return;
+  const opts = matchOpts({ map: $('lbMap').value, fillBots: $('lbBots').checked });
+  const roster = buildRoster(opts, net.humans());
+  beginMatch((sc) => new Game(sc, camera, { ...opts, roster, quality: $('quality').value }));
+  net.startMatch(game, opts);
+};
+function startClientMatch(roster, opts) {
+  beginMatch((sc) => new ClientGame(sc, camera, { ...opts, roster, quality: $('quality').value }, net));
+  net.game = game;
+}
+function stopMatchToLobby() {
+  running = false; paused = false; input.enabled = false;
+  for (const id of ['pause', 'over', 'hud', 'touch', 'buy', 'scoreboard']) $(id).classList.add('hidden');
+  $('scope').classList.add('hidden'); $('flashbang').style.opacity = 0;
+  disposeScene();
+  showLobby();
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// Invite links: ?join=CODE
+const joinCode = new URLSearchParams(location.search).get('join');
+if (joinCode) {
+  $('mpCode').value = joinCode.toUpperCase().slice(0, 5);
+  mpStatus('Enter your name and tap Join to play with your friend.');
+  requestAnimationFrame(() => $('mpName').scrollIntoView({ block: 'center' }));
+}
 
 // ---------- Main loop ----------
 let lastT = performance.now();
@@ -192,11 +314,13 @@ function frame(now) {
   if (!running || !game) return;
   if (consume('pause')) setPaused(!paused);
   const editing = document.body.classList.contains('editing');
-  if (!paused && !editing && game.phase !== 'over') {
+  // Online the match keeps running while your menu is open (you can't pause your friends)
+  if ((!paused || net) && !editing && game.phase !== 'over') {
     ctrl.update(dt);
     game.update(dt);
     hud.update(dt);
   }
+  net?.tick(dt);
   ctrl.render(renderer, scene);
 }
 requestAnimationFrame(frame);
