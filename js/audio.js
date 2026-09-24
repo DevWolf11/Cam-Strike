@@ -76,3 +76,30 @@ export function roundEnd(win) {
   const notes = win ? [523, 659, 784] : [392, 330, 262];
   notes.forEach((n, i) => setTimeout(() => ctx && tone(n, 0.3, 0.25, 'triangle'), i * 160));
 }
+
+// ---- melee & grenades ----
+export function knifeSwing() { if (ctx) noiseBurst(0.12, 2500, 0.8, 0.25, 0, 'bandpass'); }
+export function knifeHit() { if (ctx) { noiseBurst(0.1, 900, 1, 0.5, 0); tone(180, 0.1, 0.3, 'triangle'); } }
+export function nadeBounce(dist = 0) { if (ctx) tone(900 + Math.random() * 300, 0.04, 0.2 / (1 + dist * 0.1), 'square'); }
+export function pin() { if (ctx) { tone(2400, 0.03, 0.15, 'square'); setTimeout(() => ctx && tone(1800, 0.05, 0.12, 'square'), 90); } }
+export function heBoom(dist = 0) {
+  if (!ctx) return;
+  const att = 1 / (1 + dist * 0.04);
+  noiseBurst(0.9, 600, 0.6, 1.1 * att, 0);
+  tone(70, 0.7, 0.8 * att, 'sine', 0, 30);
+}
+export function flashBang(dist = 0) {
+  if (!ctx) return;
+  const att = 1 / (1 + dist * 0.05);
+  noiseBurst(0.3, 3500, 0.5, 0.9 * att, 0, 'highpass');
+  tone(110, 0.3, 0.5 * att, 'sine', 0, 50);
+}
+export function ringing(sec) {
+  if (!ctx) return;
+  const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 3200; g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.001, t + sec);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + sec);
+}
+export function smokePop(dist = 0) { if (ctx) noiseBurst(1.6, 1800, 0.4, 0.35 / (1 + dist * 0.05), 0, 'bandpass'); }
+export function fireWhoosh(dist = 0) { if (ctx) noiseBurst(1.2, 500, 0.5, 0.6 / (1 + dist * 0.05), 0); }
+export function fireCrackle(dist = 0) { if (ctx && dist < 25) noiseBurst(0.08, 3000, 3, 0.12 / (1 + dist * 0.2), 0, 'bandpass'); }
