@@ -6,6 +6,7 @@ export default function mirage() {
   const m = makeMap({
     id: 'mirage', name: 'Mirage', w: 128, h: 128,
     theme: {
+      clouds: 0.5, cloud: 0xfbf1e6, skyline: 'desert',
       ground: 'cobble', walls: ['plaster', 'stone', 'plaster_pink', 'metal', 'brick'],
       sky: ['#4f8fcf', '#9cc4e8', '#f0dcc0'], fog: 0xe6d6bf, fogNear: 55, fogFar: 170,
       sun: 0xfff0d0, sunPos: [-40, 90, 50], hemi: [0xfff6ea, 0x8c7560], hemiI: 1.8, sunI: 1.6, wallH: 7, windows: true,

@@ -4,7 +4,7 @@ import * as W from './world.js';
 import { getMap } from './maps/index.js';
 import { buildMap } from './mapmesh.js';
 import { Agent } from './agent.js';
-import { Effects } from './effects.js';
+import { Effects, surfKind } from './effects.js';
 import { Grenades } from './grenades.js';
 import * as SFX from './audio.js';
 import { initBotRound, updateBot, botBuy } from './bot.js';
@@ -77,7 +77,7 @@ export class Game {
     this.mapDef = getMap(opts.map || 'dust2');
     W.setMap(this.mapDef);
     this.mapObjs = buildMap(scene, this.mapDef, opts.quality);
-    this.effects = new Effects(scene);
+    this.effects = new Effects(scene, camera, { quality: opts.quality, theme: this.mapDef.theme });
     this.grenades = new Grenades(this);
     this.listeners = [];
     this.time = 0;
@@ -115,6 +115,7 @@ export class Game {
     this.phase = 'freeze';
     this.timer = this.rules.freezeTime;
     this.grenades.clear();
+    this.effects.clearDecals();
     const zc = (k) => { const Z = this.mapDef.zones[k]; return { x: (Z.x0 + Z.x1) / 2, z: (Z.z0 + Z.z1) / 2 }; };
     for (const team of ['T', 'CT']) {
       const members = this.teamOf(team);
@@ -314,26 +315,23 @@ export class Game {
       aimDir(baseYaw + Math.cos(th) * r, basePitch + Math.sin(th) * r, _d);
       const hit = this.traceShot(a, _o, _d, 250, rewind);
       const end = _v.copy(_o).addScaledVector(_d, hit.dist);
-      if (p < 3) ends.push([+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2), hit.agent ? 1 : hit.dist < 250 ? (hit.ny ? 2 : 3) : 0]);
+      ends.push([+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2), hit.agent ? 1 : hit.dist < 250 ? surfKind(hit) : 0]);
       if (hit.agent) {
-        this.effects.puff(end, 0x9a1010, 0.25, 0.3, 0.2);
         const imp = _d.clone().multiplyScalar(w.impulse || 2);
         if (hit.agent.team === a.team) anyTeam = true;
         this.applyDamage(hit.agent, a, w.id, this.damageFor(w, hit.dist), hit.head, imp);
         anyHit = true; anyHead = anyHead || hit.head;
-      } else if (hit.dist < 250) {
-        this.effects.puff(end, hit.ny ? 0xcbb48a : 0xd9c7a0, 0.18, 0.4, 0.3);
       }
-      if (p < 3) this.effects.tracer(muzzle, end);
     }
     const k = a.sprayIdx < 10 ? 1 : 0.35;
     a.recoilP += w.recoil * k * (0.85 + Math.random() * 0.3);
     a.recoilY += (Math.random() - 0.5) * 2 * w.recoilYaw * (a.sprayIdx > 4 ? 2 : 0.6);
     a.sprayIdx++;
     a.lastShot = this.time;
-    this.effects.flash(muzzle, w.id === 'shotgun' || w.id === 'sniper' ? 0.7 : 0.45);
+    this.effects.shot(muzzle, w.id, ends, a, a === this.player);
+    a.char.kick = 1;
     if (a.human) this.emit('shot', { agent: a, hit: anyHit, head: anyHead, team: anyTeam });
-    this.emit('fxShot', { a, weapon: w.id, muzzle: [+muzzle.x.toFixed(2), +muzzle.y.toFixed(2), +muzzle.z.toFixed(2)], ends });
+    this.emit('fxShot', { a, weapon: w.id, muzzle: [+muzzle.x.toFixed(2), +muzzle.y.toFixed(2), +muzzle.z.toFixed(2)], ends: ends.slice(0, 4) });
     if (a === this.player) {
       SFX.gunshot(w.id, 0, 0);
       if (anyHit && !anyTeam) anyHead ? SFX.headshot() : SFX.hitmarker();
@@ -367,7 +365,7 @@ export class Game {
       const fx = -Math.sin(best.yaw), fz = -Math.cos(best.yaw);
       const dx = best.pos.x - a.pos.x, dz = best.pos.z - a.pos.z, dl = Math.hypot(dx, dz) || 1;
       const backstab = (fx * dx + fz * dz) / dl > 0.5;
-      this.effects.puff(_v.set(best.pos.x, best.pos.y + 1.2, best.pos.z), 0x9a1010, 0.3, 0.3, 0.2);
+      this.effects.blood(_v.set(best.pos.x, best.pos.y + 1.2, best.pos.z), new THREE.Vector3(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), backstab);
       SFX.knifeHit();
       this.applyDamage(best, a, 'knife', backstab ? w.backstab : w.damage, false, _d.clone().multiplyScalar(w.impulse));
       if (a.human) this.emit('shot', { agent: a, hit: true, head: backstab, team: best.team === a.team });

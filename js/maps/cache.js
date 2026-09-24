@@ -8,6 +8,7 @@ export default function cache() {
   const m = makeMap({
     id: 'cache', name: 'Cache', w: 128, h: 112,
     theme: {
+      clouds: 0.85, cloud: 0xe8ecef, skyline: 'industrial',
       ground: 'concrete', walls: ['concrete', 'metal', 'brick', 'metal', 'brick'],
       sky: ['#7a9cb8', '#b9ccd8', '#dcdcd4'], fog: 0xc8ccc8, fogNear: 50, fogFar: 160,
       sun: 0xfff2e0, sunPos: [50, 80, -40], hemi: [0xeef2f6, 0x6a6a60], hemiI: 1.7, sunI: 1.5, wallH: 7, windows: true,

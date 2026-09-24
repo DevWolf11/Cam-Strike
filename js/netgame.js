@@ -2,6 +2,7 @@ import * as THREE from '../lib/three.module.min.js';
 import { Game, aimDir } from './game.js';
 import { WEAPONS, GRENADES } from './config.js';
 import * as W from './world.js';
+import { surfKind } from './effects.js';
 import * as SFX from './audio.js';
 import { grenadeGeometry } from './weapons3d.js';
 
@@ -82,19 +83,19 @@ export class ClientGame extends Game {
     const spread = this.spreadOf(a);
     _o.set(a.pos.x, a.eyeY, a.pos.z);
     const muzzle = this.muzzlePos(a, new THREE.Vector3());
-    for (let p = 0; p < Math.min(3, w.pellets); p++) {
+    const ends = [];
+    for (let p = 0; p < w.pellets; p++) {
       const r = spread * Math.sqrt(Math.random()), th = Math.random() * Math.PI * 2;
       aimDir(a.yaw + a.recoilY + Math.cos(th) * r, a.pitch + a.recoilP + Math.sin(th) * r, _d);
       const hit = W.raycast(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, 250);
       const end = _v.copy(_o).addScaledVector(_d, hit.dist);
-      if (hit.dist < 250) this.effects.puff(end, hit.ny ? 0xcbb48a : 0xd9c7a0, 0.18, 0.4, 0.3);
-      this.effects.tracer(muzzle, end);
+      ends.push([end.x, end.y, end.z, hit.dist < 250 ? surfKind(hit) : 0]);
     }
     const k = a.sprayIdx < 10 ? 1 : 0.35;
     a.recoilP += w.recoil * k * (0.85 + Math.random() * 0.3);
     a.recoilY += (Math.random() - 0.5) * 2 * w.recoilYaw * (a.sprayIdx > 4 ? 2 : 0.6);
     a.sprayIdx++; a.lastShot = this.time;
-    this.effects.flash(muzzle, w.id === 'shotgun' || w.id === 'sniper' ? 0.7 : 0.45);
+    this.effects.shot(muzzle, w.id, ends, a, true);
     SFX.gunshot(w.id, 0, 0);
     this.emit('shot', { agent: a, hit: false });
     if (inv.mag === 0 && inv.reserve > 0) a.autoReload = 0.25;
@@ -149,7 +150,8 @@ export class ClientGame extends Game {
       const ox = a.pos.x, oz = a.pos.z;
       a.pos.set(A.x + (B.x - A.x) * k, A.y + (B.y - A.y) * k, A.z + (B.z - A.z) * k);
       a.yaw = lerpAngle(A.yaw, B.yaw, k); a.pitch = A.pitch + (B.pitch - A.pitch) * k;
-      const sp = Math.hypot(a.pos.x - ox, a.pos.z - oz) / Math.max(dt, 1e-3);
+      const idt = 1 / Math.max(dt, 1e-3), sp = Math.hypot(a.pos.x - ox, a.pos.z - oz) * idt;
+      a.vx += ((a.pos.x - ox) * idt - a.vx) * Math.min(1, dt * 10); a.vz += ((a.pos.z - oz) * idt - a.vz) * Math.min(1, dt * 10);
       a.speed += (Math.min(sp, 7) - a.speed) * Math.min(1, dt * 10);
       a.moving = Math.max(0, Math.min(1, (a.speed - 1.4) / 3.6));
       a.stepAcc += a.speed * dt;
@@ -221,6 +223,7 @@ export class ClientGame extends Game {
       case 'rs': {
         this.round = e.round; this.phase = 'freeze'; this.timer = this.rules.freezeTime;
         this.grenades.clear();
+        this.effects.clearDecals();
         for (const [nid, x, y, z, yaw, seq] of e.sp) {
           const a = this.agents[nid];
           a.resetForRound({ x, y, z }, yaw);
@@ -256,13 +259,8 @@ export class ClientGame extends Game {
         const a = A(e.nid);
         if (!a || a === p) break;
         const m = new THREE.Vector3(e.m[0], e.m[1], e.m[2]);
-        for (const [x, y, z, kind] of e.e2) {
-          const end = new THREE.Vector3(x, y, z);
-          this.effects.tracer(m, end);
-          if (kind === 1) this.effects.puff(end, 0x9a1010, 0.25, 0.3, 0.2);
-          else if (kind) this.effects.puff(end, kind === 2 ? 0xcbb48a : 0xd9c7a0, 0.18, 0.4, 0.3);
-        }
-        this.effects.flash(m, e.w === 'shotgun' || e.w === 'sniper' ? 0.7 : 0.45);
+        this.effects.shot(m, e.w, e.e2, a, false);
+        a.char.kick = 1;
         const s = this.soundFrom(a.pos);
         SFX.gunshot(e.w, s.dist, s.pan);
         a.spotted = Math.max(a.spotted, 1.2);

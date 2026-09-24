@@ -39,6 +39,28 @@ Four maps modeled on the CS2 classics. Each has a 1m grid with real floor height
 | **Cache** | Container yard: Quad and Truck on A, Squeaky, Highway, Garage, White box in Mid, Z connector, Checkers, Sun room, B heaven |
 | **Nuke** | Two levels: the main level sits 2.4m up and B is a real lower floor, reached by Ramp room, the CT decon ramp and the vent from A. A is a tall hall with a Heaven catwalk. Outside yard with silos, Lobby, Hut, Squeaky |
 
+## Graphics
+
+Everything is generated in code, with no image files: textures are painted onto canvases when the map loads, and the sky, clouds and effects are built the same way.
+
+- **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves), a sky dome with drifting clouds and a sun glow, a distant skyline for each map (desert town, industrial yard, power plant), filmic tone mapping and ambient occlusion baked into the map.
+- **Materials:** 512px textures with matching bump maps, so mortar lines, cobbles, planks and corrugated metal catch the light. Walls have a stone base band, and the maps carry posters, graffiti, drainpipes, AC units and rubble.
+- **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, starburst muzzle flashes that light up nearby walls, layered explosions (flash, fireball, smoke, sparks) with camera shake, smoke clouds, and molotovs that give off smoke and embers.
+- **Animation:**
+  - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land and bobs in a figure-8 as you walk.
+  - The gun is lit by the map's sun and darkens when you step into shade.
+  - Other players' legs move the way they're actually going (strafe, backpedal), and they lean into runs, kick when firing and reach for the magazine when reloading.
+
+**Graphics quality** (in the menu):
+
+| Setting | What you get |
+|---|---|
+| **Low** | No shadows or bump maps, 256px textures, reduced resolution. For older phones |
+| **Medium** | Sun shadows, bump maps, full detail, native resolution (default) |
+| **High** | Softer and sharper shadows, sharper texture filtering, higher resolution |
+
+On every setting the game watches its frame rate. If your device can't keep up (below about 45 fps), it lowers the render resolution a step at a time, and raises it again when there's headroom. Add `?fixedres` to the URL to turn this off.
+
 ## Weapons and equipment
 
 | Slot | Weapon | Price | Notes |
@@ -104,7 +126,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/config.js` | **All tuning:** weapons, grenades, economy, rules, bot difficulty |
 | `js/world.js` | Active map grid: collision with floor heights, bullet raycasts, line of sight and smoke, A* pathfinding |
 | `js/maps/*.js` | Map layouts written with a small builder (`dsl.js`): floors, walls, stairs, crates, roofs, zones, callouts, props and bot tactics |
-| `js/mapmesh.js`, `js/textures.js`, `js/geom.js` | Turn a map into merged meshes (about 20 draw calls) with procedural textures, fake ambient occlusion, windows, doors and props |
+| `js/mapmesh.js`, `js/textures.js`, `js/geom.js` | Turn a map into merged meshes (about 20 draw calls) with procedural textures and bump maps, baked ambient occlusion, sun shadows, windows, doors, posters and props |
+| `js/sky.js` | Sky dome (gradient, sun, clouds from a prebaked noise texture) and the distant skyline |
 | `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
@@ -115,7 +138,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/hud.js`, `js/layout.js`, `js/loadout.js` | HUD and buy menu, adaptive and editable touch layout, loadout screen |
 | `js/net.js` | Online play: host and client over PeerJS, lobby, snapshots, events, pings |
 | `js/netgame.js` | A friend's copy of the match: local prediction, interpolation, applying host snapshots and events |
-| `js/input.js`, `js/audio.js`, `js/effects.js` | Touch/keyboard/mouse input, synthesized sounds, tracers and impacts |
+| `js/effects.js` | Pooled effects: tracers, muzzle flashes and light, impact sparks and debris, bullet-hole/blood/scorch decals, shell casings, explosions, dust motes, camera shake |
+| `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
 three.js r170 and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`).
