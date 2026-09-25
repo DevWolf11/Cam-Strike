@@ -23,13 +23,17 @@ export class Agent {
     this.weapon = 'pistol'; this.prevWeapon = 'knife';
     this.fireCd = 0; this.reloadT = 0; this.sprayIdx = 0; this.lastShot = -9;
     this.scoped = false; this.actionT = 0; this.blindT = 0; this.stepAcc = 0;
+    this.crouching = false; this.duck = 0;       // crouch wish, and how far down the body is (0..1)
     this.punished = 0; this.punishedActive = false;
     this.spotted = 0; this.roundsPlayed = 0;
     this.char = new Character(scene, team, outfit);
     this.setWeaponMesh();
   }
 
-  get eyeY() { return this.pos.y + PLAYER.eyeHeight; }
+  get eyeY() { return this.pos.y + PLAYER.eyeHeight - (PLAYER.eyeHeight - PLAYER.crouchEye) * this.duck; }
+  // hitbox heights follow the crouch too
+  static headY(duck) { return PLAYER.headY - (PLAYER.headY - PLAYER.crouchHeadY) * duck; }
+  static bodyTop(duck) { return PLAYER.bodyTop - (PLAYER.bodyTop - PLAYER.crouchBodyTop) * duck; }
   get w() { return this.weapon === 'nade' ? NADE_W : WEAPONS[this.weapon]; }
   get primary() { return PRIMARIES.find((k) => this.inv[k]) || null; }
   get nadeCount() { return NADE_ORDER.reduce((s, k) => s + this.nades[k], 0); }
@@ -81,7 +85,7 @@ export class Agent {
     this.setWeaponMesh();
     this.hp = 100; this.alive = true; this.vy = 0; this.onGround = true; this.vx = this.vz = 0;
     this.pos.set(spawn.x, spawn.y || 0, spawn.z); this.yaw = yaw; this.pitch = 0;
-    this.fireCd = 0; this.reloadT = 0; this.sprayIdx = 0; this.scoped = false; this.spotted = 0;
+    this.fireCd = 0; this.reloadT = 0; this.sprayIdx = 0; this.scoped = false; this.spotted = 0; this.crouching = false; this.duck = 0;
     this.recoilP = this.recoilY = 0; this.actionT = 0; this.blindT = 0; this.autoReload = 0;
     this.char.visible = true;
     this.spawnSeq = (this.spawnSeq || 0) + 1;
@@ -96,6 +100,8 @@ export class Agent {
 
   updateMesh(dt, planting) {
     if (!this.alive) { this.char.updateRagdoll(dt); return; }
+    // on hosts this is also what moves the hitboxes: the duck eases down/up in ~0.2s
+    this.duck += ((this.crouching ? 1 : 0) - this.duck) * Math.min(1, dt * 12);
     const w = this.w;
     const kind = planting ? 'bomb' : this.weapon === 'nade' ? 'nade' : w.kind || 'rifle';
     this.char.pose(this, dt, kind, w.len || 0.5, this.actionT);

@@ -108,7 +108,9 @@ They move with **motion capture**, from Mixamo's "Pro Rifle Pack":
 - There are also an idle stance, a mid-air pose for jumps, and a kneel while planting or defusing.
 - The clips are stored as trajectories of the game's own joints (`assets/anims/locomotion.json`, 76 KB), not as bone rotations, so the same data drives every character regardless of how its skeleton is built.
 - The rifle pack's bladed stance is mostly turned back toward the aim. The direction clips are picked at a matching offset, so the feet still step along the real travel direction.
+- There's a full crouching set too: a kneel when still, and crouch-walks in 8 directions.
 - The upper body stays on the aim: the gun is shouldered and pointed where the player looks, and it moves with the captured torso.
+- **Turning in place:** a character standing still keeps its feet planted while the torso twists toward the aim. Past about 50° the feet step round to catch up, leading with the foot on the turning side.
 
 `js/skinned.js` fits whichever model the outfit uses to those joints every frame. That fit:
 - aims the hips, spine and head, keeping each model's natural neck lean;
@@ -132,10 +134,18 @@ On death they become **ragdolls** (verlet physics). A body falls with the force 
 - Hold the red button to fire, and keep dragging on it to aim while you shoot. There's a second fire button on the left.
 - The weapon bar at the bottom switches between primary, pistol, knife and each grenade type. With a grenade out, fire throws it and the scope button lobs it underhand.
 - Hold **USE** (it appears on a site or at the bomb) to plant or defuse.
+- The **crouch** button (the down arrow next to jump) toggles crouching.
 - **Controls scale with the screen.** Tablets get proportionally bigger buttons and minimap. **Controls size** and **Minimap size** sliders are in the menu and the pause screen. **Move & resize buttons** lets you drag any control anywhere and resize each one; the layout is saved on your device.
 - Aim assist (on by default for touch) slows your look over an enemy and gently pulls toward them while you move or shoot.
 
-**Keyboard + mouse:** WASD move, mouse look (click to capture), left click fire or throw, right click scope or lob, `R` reload, hold `E` plant/defuse, `Space` jump, `Shift` walk, `1` primary, `2` pistol, `3` knife, `4` grenades (press again to cycle), `Q` last weapon, `B` buy, `Tab` scoreboard, `Esc` pause.
+**Crouching:**
+- You move at a third of the speed, and crouch-walking makes no footstep sound.
+- Your spread is about 30% tighter.
+- Your eye line and hitboxes drop, so you can hide behind low cover.
+- Lag compensation rewinds the crouch along with your position.
+- Bots aim at a crouched player's real head height, and some of them crouch to spray at range.
+
+**Keyboard + mouse:** WASD move, mouse look (click to capture), left click fire or throw, right click scope or lob, `R` reload, hold `E` plant/defuse, `Space` jump, `Shift` walk, hold `C` or `Ctrl` crouch, `1` primary, `2` pistol, `3` knife, `4` grenades (press again to cycle), `Q` last weapon, `B` buy, `Tab` scoreboard, `Esc` pause.
 
 ## Run it
 

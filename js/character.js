@@ -353,7 +353,7 @@ export class Character {
     const ph = this.phase, sw = Math.min(1, speed / 4.5);
     const bob = Math.abs(Math.sin(ph)) * 0.035 * sw;
     const air = a.onGround === false ? 1 : 0;
-    const crouch = (a.crouch || 0) * 0.35;
+    const crouch = (a.duck || 0) * 0.35;
     const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
     // movement direction in the body frame (forward = -Z): legs swing that way, so strafing
     // and backpedalling look right instead of moonwalking
@@ -370,7 +370,7 @@ export class Character {
     // body: motion-captured locomotion when available (walk/run in 8 directions, idle, jump, crouch
     // while planting/defusing), else the procedural cycle. ox/oy/oz = how far the chest moved from
     // its standing spot: the arms (which follow the aim) ride along with it.
-    const mc = sampleLocomotion(this.mst || (this.mst = {}), dt, { speed, dx, dz, air, crouch: kind === 'bomb' ? 1 : 0 });
+    const mc = sampleLocomotion(this.mst || (this.mst = {}), dt, { speed, dx, dz, air, crouch: kind === 'bomb' || a.crouching ? 1 : 0 });
     let ox, oy, oz;
     if (mc) {
       const I = MOCAP_JOINTS();
@@ -402,6 +402,32 @@ export class Character {
       if (ft.y < 0.05 && !air) ft.y = 0.05;
     };
     leg('L', ph); leg('R', ph + Math.PI);
+    }
+    // turning in place: standing still, the feet stay planted while the upper body follows the aim;
+    // past ~50deg they step round to catch up (leading with the foot on the turning side)
+    const wrapA = (v) => { while (v > Math.PI) v -= Math.PI * 2; while (v < -Math.PI) v += Math.PI * 2; return v; };
+    if (this.feetYaw === undefined) this.feetYaw = a.yaw;
+    let liftL = 0, liftR = 0;
+    if (speed > 0.6 || air) { this.turn = null; this.feetYaw = a.yaw + wrapA(this.feetYaw - a.yaw) * Math.max(0, 1 - dt * 10); }
+    else {
+      if (!this.turn && Math.abs(wrapA(this.feetYaw - a.yaw)) > 0.85) this.turn = { t: 0, from: this.feetYaw, dur: 0.3 + Math.abs(wrapA(a.yaw - this.feetYaw)) * 0.12 };
+      const T = this.turn;
+      if (T) {
+        T.t += dt;
+        const u = Math.min(1, T.t / T.dur), e = u * u * (3 - 2 * u), turnLeft = wrapA(a.yaw - T.from) > 0;
+        this.feetYaw = T.from + wrapA(a.yaw - T.from) * e;
+        const l1 = u < 0.6 ? Math.sin(Math.PI * u / 0.6) * 0.09 : 0, l2 = u > 0.4 ? Math.sin(Math.PI * (u - 0.4) / 0.6) * 0.09 : 0;
+        if (turnLeft) { liftL = l1; liftR = l2; } else { liftR = l1; liftL = l2; }
+        if (u >= 1) this.turn = null;
+      }
+    }
+    const rel = wrapA(this.feetYaw - a.yaw);
+    if (Math.abs(rel) > 1e-3 || liftL || liftR) {
+      const cr = Math.cos(rel), sr = Math.sin(rel), px = J.pelvis.x, pz = J.pelvis.z;
+      const turnPt = (v) => { const x = v.x - px, z = v.z - pz; v.x = px + x * cr + z * sr; v.z = pz - x * sr + z * cr; };
+      for (const k of ['hipL', 'hipR', 'knL', 'knR', 'ftL', 'ftR']) turnPt(J[k]);
+      if (mc) { turnPt(this.toes.L); turnPt(this.toes.R); this.toes.L.y += liftL; this.toes.R.y += liftR; }
+      J.ftL.y += liftL; J.ftR.y += liftR; J.knL.y += liftL * 0.5; J.knR.y += liftR * 0.5;
     }
     // arms / hands follow aim pitch around the chest pivot (the bomb is set down at a fixed spot)
     const P = HAND_POSES[kind] || HAND_POSES.rifle;

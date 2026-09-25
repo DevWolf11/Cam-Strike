@@ -5,6 +5,7 @@ export const input = {
   fire: false,
   use: false,
   walk: false,
+  crouch: false,          // held key or the touch toggle
   pressed: new Set(),     // one-shot actions: jump, reload, scope, buy, slot1..5, next, score
   touch: false,
   sens: 1,
@@ -22,6 +23,7 @@ export function consume(action) {
 }
 
 const keys = new Set();
+let touchCrouch = false;   // on touch screens crouch is a toggle
 let joy = null;          // { id, ox, oy }
 const lookPointers = new Map(); // id -> {x,y}
 const btnPointers = new Map();  // id -> btn element
@@ -32,6 +34,7 @@ function setHeld(btn, on) {
   btn.classList.toggle('held', on);
   if (a === 'fire' || a === 'fireL') input.fire = on || [...btnPointers.values()].some((b) => b !== btn && (b.dataset.btn === 'fire' || b.dataset.btn === 'fireL'));
   else if (a === 'use') input.use = on;
+  else if (a === 'crouch') { if (on) { touchCrouch = !touchCrouch; btn.classList.toggle('on', touchCrouch); input.crouch = touchCrouch; } }
   else if (on) input.pressed.add(a);
 }
 
@@ -109,6 +112,7 @@ export function initInput(canvas, touchLayer) {
     if (k === 'KeyE') input.use = true;
     if (k.startsWith('Digit')) input.pressed.add('slot' + k.slice(5));
     if (k === 'Tab') { e.preventDefault(); input.pressed.add('score'); }
+    if (k === 'ControlLeft' || k === 'KeyC') e.preventDefault();
     if (k === 'Escape') input.pressed.add('pause');
     updateKeys();
   });
@@ -144,9 +148,11 @@ function updateKeys() {
   const l = Math.hypot(x, y) || 1;
   input.move.x = x / l; input.move.y = y / l;
   input.walk = keys.has('ShiftLeft');
+  input.crouch = touchCrouch || keys.has('KeyC') || keys.has('ControlLeft');
 }
 
 export function resetInput() {
   input.fire = false; input.use = false; input.lookDX = input.lookDY = 0;
   input.pressed.clear();
+  touchCrouch = false; input.crouch = false; document.getElementById('btnCrouch')?.classList.remove('on');
 }

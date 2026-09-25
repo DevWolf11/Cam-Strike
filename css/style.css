@@ -107,6 +107,7 @@ button { font: inherit; color: inherit; }
 .tbtn svg { width: 55%; height: 55%; pointer-events: none; }
 .tbtn.rect { border-radius: 10px; }
 .tbtn.held { background: rgba(255,185,56,0.45); border-color: var(--accent); }
+.tbtn.on { background: rgba(255,185,56,0.3); border-color: var(--accent); }
 #btnFire { color: #ffdcdc; background: rgba(160, 30, 20, 0.38); }
 #btnUse { background: rgba(255,185,56,0.3); border-color: var(--accent); }
 #btnBuy { color: var(--good); }

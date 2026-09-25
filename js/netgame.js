@@ -193,7 +193,7 @@ export class ClientGame extends Game {
         if (w !== this.lastHostW) { this.lastHostW = w; if (a.alive && w !== a.weapon && this.time - (a.equipAt || 0) > 0.6 && !a.throwing) a.equip(w, ns); }
         continue;
       }
-      a.scoped = !!(fl & 1); a.onGround = !!(fl & 2);
+      a.scoped = !!(fl & 1); a.onGround = !!(fl & 2); a.crouching = !!(fl & 64);
       if (a.weapon !== w || (w === 'nade' && a.nadeSel !== ns)) { a.weapon = w; a.nadeSel = ns; a.setWeaponMesh(); }
       if (!alive) continue;
       const buf = this.buf.get(nid) || [];
@@ -289,7 +289,7 @@ export class ClientGame extends Game {
     const p = this.player;
     return {
       t: 'st', seq: p.spawnSeq, p: [+p.pos.x.toFixed(3), +p.pos.y.toFixed(3), +p.pos.z.toFixed(3)], v: [+p.vx.toFixed(2), +p.vz.toFixed(2), +p.vy.toFixed(2)],
-      g: p.onGround ? 1 : 0, yaw: +p.yaw.toFixed(4), pitch: +p.pitch.toFixed(4), w: p.weapon, ns: p.nadeSel, sc: p.scoped ? 1 : 0, use: this.useHeld ? 1 : 0,
+      g: p.onGround ? 1 : 0, yaw: +p.yaw.toFixed(4), pitch: +p.pitch.toFixed(4), w: p.weapon, ns: p.nadeSel, sc: p.scoped ? 1 : 0, use: this.useHeld ? 1 : 0, cr: p.crouching ? 1 : 0,
     };
   }
 
@@ -307,7 +307,7 @@ export function snapshot(g, flyIds) {
     t: 'snap', ts: +g.time.toFixed(3), ph: g.phase, tm: +g.timer.toFixed(2), r: g.round, sc: [g.score.T, g.score.CT],
     b: { st: b.state, c: A(b.carrier), si: b.site, pp: +(b.plantP || 0).toFixed(2), pl: A(b.planter), dp: +(b.defuseP || 0).toFixed(2), df: A(b.defuser), tm: +(b.timer || 0).toFixed(2), p: b.state === 'dropped' || b.state === 'planted' ? [fx(b.pos.x), fx(b.pos.y), fx(b.pos.z)] : null },
     a: g.agents.map((a) => [a.nid, fx(a.pos.x), fx(a.pos.y), fx(a.pos.z), +a.yaw.toFixed(3), +a.pitch.toFixed(3), a.alive ? 1 : 0, Math.max(0, Math.ceil(a.hp)), Math.ceil(a.armor), a.weapon, a.nadeSel,
-      (a.scoped ? 1 : 0) | (a.onGround ? 2 : 0) | (a.hasKit ? 8 : 0) | (a.punishedActive ? 16 : 0) | (a.helmet ? 32 : 0), a.money, a.kills, a.deaths, a.teamkills || 0]),
+      (a.scoped ? 1 : 0) | (a.onGround ? 2 : 0) | (a.hasKit ? 8 : 0) | (a.punishedActive ? 16 : 0) | (a.helmet ? 32 : 0) | (a.crouching ? 64 : 0), a.money, a.kills, a.deaths, a.teamkills || 0]),
     n: g.grenades.flying.map((n) => [flyIds(n), n.type, fx(n.pos.x), fx(n.pos.y), fx(n.pos.z)]),
   };
 }

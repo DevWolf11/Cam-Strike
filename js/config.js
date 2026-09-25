@@ -49,6 +49,8 @@ export const PLAYER = {
   headY: 1.66,
   bodyHalf: 0.3,
   bodyTop: 1.46,
+  // crouched: eye, head-hitbox centre and body-box top, move speed factor, spread factor
+  crouchEye: 1.15, crouchHeadY: 1.2, crouchBodyTop: 1.02, crouchSpeed: 0.34, crouchSpread: 0.72,
   maxHp: 100,
 };
 

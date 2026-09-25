@@ -168,13 +168,16 @@ export class SkinnedBody {
     const right = new THREE.Vector3().subVectors(J.shR, J.shL);
     const hipRight = new THREE.Vector3().subVectors(J.hipR, J.hipL);
     const fwd = new THREE.Vector3().crossVectors(up, right).normalize();
+    const hipFwd = new THREE.Vector3().crossVectors(up, hipRight).normalize();   // knees point where the hips face
     // hips follow the pelvis, the spine bends toward the chest
     const hips = this.b.Hips;
     hips.parent.updateWorldMatrix(true, false);
     hips.position.copy(hips.parent.worldToLocal(J.pelvis.clone()));
     const hipsUp = up.clone().normalize().lerp(new THREE.Vector3(0, 1, 0), 0.5);
     this.aim('Hips', hipsUp, hipRight);
-    for (const s of P.spine) this.aim(s, up, right);
+    // spread the twist between hips and shoulders over the spine instead of snapping at the waist
+    const hr = _e.copy(hipRight).normalize(), sr = right.clone().normalize();
+    P.spine.forEach((s, i) => { const k = (i + 1) / P.spine.length; this.aim(s, up, hr.clone().multiplyScalar(1 - k).addScaledVector(sr, k)); });
     // head: the model's own neck lean (in the torso frame), turned by however far the game's head
     // joint is tilted from the torso axis (aim pitch, ragdoll flop)
     const upN = _a.copy(up).normalize();
@@ -190,7 +193,7 @@ export class SkinnedBody {
     }
     for (const [s, kn, ft] of [['Left', 'knL', 'ftL'], ['Right', 'knR', 'ftR']]) {
       const ankle = J[ft].clone(); ankle.y += Math.max(0, P.footLift - 0.05);
-      this.limb(`${s}UpLeg`, `${s}Leg`, P.legLen, ankle, J[kn].clone().addScaledVector(fwd, 0.2), fwd);
+      this.limb(`${s}UpLeg`, `${s}Leg`, P.legLen, ankle, J[kn].clone().addScaledVector(hipFwd, 0.2), hipFwd);
       // heel-toe roll from the motion capture
       const foot = this.b[`${s}Foot`];
       if (toes && foot && P.rest[`${s}Foot`]) this.aim(`${s}Foot`, new THREE.Vector3().subVectors(toes[s[0]], J[ft]), hipRight);

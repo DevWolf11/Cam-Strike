@@ -24,17 +24,25 @@ export function loadMocap() {
         .map((c) => ({ c, ang: Math.atan2(c.dir[0], -c.dir[1]) })).sort((a, b) => a.ang - b.ang);
       // Rifle-pack clips stand bladed (whole body ~50deg off the aim line). Most of that turn is undone
       // at runtime: the pose is rotated back by `stance`, and direction clips are picked at the travel
-      // angle rotated the other way, so the feet still step exactly along the real travel direction.
-      const id = clips.idle, ih = idx.hipL;
-      let hx = 0, hz = 0;
-      for (let f = 0; f < id.n; f++) { const o = f * S; hx += id.d[o + idx.hipR] - id.d[o + ih]; hz += id.d[o + idx.hipR + 2] - id.d[o + ih + 2]; }
-      const stance = -STANCE_UNDO * Math.atan2(-hz, hx);
+      // angle rotated the other way, so the feet still step along the real travel direction.
+      // Standing and crouching clips are bladed differently, so each layer has its own angle.
+      const stanceOf = (c) => {
+        let hx = 0, hz = 0;
+        for (let f = 0; f < c.n; f++) { const o = f * S; hx += c.d[o + idx.hipR] - c.d[o + idx.hipL]; hz += c.d[o + idx.hipR + 2] - c.d[o + idx.hipL + 2]; }
+        const a = -STANCE_UNDO * Math.atan2(-hz, hx);
+        return { cs: Math.cos(a), sn: Math.sin(a) };
+      };
+      const stand = stanceOf(clips.idle), crouch = stanceOf(clips.crouch);
       // where the chest pivot (neck joint) rests in the standing idle, after turning the stance back
+      const id = clips.idle;
       let nx = 0, ny = 0, nz = 0;
       for (let f = 0; f < id.n; f++) { const o = f * S + idx.neck; nx += id.d[o]; ny += id.d[o + 1]; nz += id.d[o + 2]; }
       nx /= id.n; ny /= id.n; nz /= id.n;
-      const cs = Math.cos(stance), sn = Math.sin(stance);
-      DATA = { clips, S, idx, joints: J, walk: ring('walk'), run: ring('run'), cs, sn, restNeck: [nx * cs + nz * sn, ny, -nx * sn + nz * cs] };
+      DATA = {
+        clips, S, idx, joints: J, walk: ring('walk'), run: ring('run'), cwalk: ring('cwalk'), stand, crouch,
+        restNeck: [nx * stand.cs + nz * stand.sn, ny, -nx * stand.sn + nz * stand.cs],
+        tmp: new Float32Array(S),
+      };
     }).catch((e) => console.warn('Mocap unavailable, using procedural motion', e));
   }
   return loading;
@@ -72,31 +80,42 @@ export function sampleLocomotion(st, dt, move) {
   const ease = (cur, target, rate) => cur + (target - cur) * Math.min(1, dt * rate);
   st.move = ease(st.move ?? 0, Math.min(1, Math.max(0, (move.speed - 0.15) / 0.9)), 9);
   st.air = ease(st.air ?? 0, move.air, 10);
-  st.crouch = ease(st.crouch ?? 0, move.crouch, 6);
-  // walk <-> run by speed; cycle length blends too so the feet don't slide
-  const W = clips['walk forward'], R = clips['run forward'];
+  st.crouch = ease(st.crouch ?? 0, move.crouch, 8);
+  // standing: walk <-> run by speed; the cycle length blends too so the feet don't slide
+  const W = clips['walk forward'], R = clips['run forward'], C = clips['cwalk forward'];
   const g = Math.min(1, Math.max(0, (move.speed - W.speed) / (R.speed - W.speed)));
   const stride = W.stride + (R.stride - W.stride) * g;
   st.ph = ((st.ph ?? Math.random()) + dt * move.speed / stride) % 1;
+  st.cph = ((st.cph ?? Math.random()) + dt * move.speed / C.stride) % 1;
   st.idle = ((st.idle ?? Math.random()) + dt / clips.idle.dur) % 1;
   st.airT = ((st.airT ?? 0) + dt / clips.air.dur) % 1;
   st.crT = ((st.crT ?? 0) + dt / clips.crouch.dur) % 1;
-  // travel direction as seen from the un-turned clips: R(-stance) * (dx, dz), R = rotation about +Y
-  const { cs, sn } = DATA;
-  const cx = move.dx * cs - move.dz * sn, cz = move.dx * sn + move.dz * cs;
-  const ang = Math.atan2(cx, -cz);
-  const base = (1 - st.air) * (1 - st.crouch);
-  const wMove = base * st.move;
-  for (const [ring, gw] of [[DATA.walk, 1 - g], [DATA.run, g]]) {
-    if (gw <= 0) continue;
-    const [a, b, t] = ringPair(ring, ang);
-    add(acc, a, st.ph + a.phase0, wMove * gw * (1 - t));
-    add(acc, b, st.ph + b.phase0, wMove * gw * t);
-  }
-  add(acc, clips.idle, st.idle, base * (1 - st.move));
-  add(acc, clips.air, st.airT, st.air * (1 - st.crouch));
-  add(acc, clips.crouch, st.crT, st.crouch);
-  // turn the pose back toward the aim: R(stance) about +Y (x' = x cos + z sin, z' = -x sin + z cos)
-  for (let k = 0; k < DATA.S; k += 3) { const x = acc[k], z = acc[k + 2]; acc[k] = x * cs + z * sn; acc[k + 2] = -x * sn + z * cs; }
+  const ground = 1 - st.air;
+  const layer = (stance, w, fill) => {
+    if (w <= 1e-4) return;
+    const T = DATA.tmp; T.fill(0);
+    // travel direction as the un-turned clips see it: R(-stance) * (dx, dz), R = rotation about +Y
+    const { cs, sn } = stance;
+    const cx = move.dx * cs - move.dz * sn, cz = move.dx * sn + move.dz * cs;
+    fill(T, Math.atan2(cx, -cz));
+    // turn the layer back toward the aim: R(stance) (x' = x cos + z sin, z' = -x sin + z cos)
+    for (let k = 0; k < DATA.S; k += 3) { const x = T[k], y = T[k + 1], z = T[k + 2]; acc[k] += w * (x * cs + z * sn); acc[k + 1] += w * y; acc[k + 2] += w * (-x * sn + z * cs); }
+  };
+  layer(DATA.stand, ground * (1 - st.crouch), (T, ang) => {
+    for (const [ring, gw] of [[DATA.walk, 1 - g], [DATA.run, g]]) {
+      if (gw <= 0) continue;
+      const [a, b, t] = ringPair(ring, ang);
+      add(T, a, st.ph + a.phase0, st.move * gw * (1 - t));
+      add(T, b, st.ph + b.phase0, st.move * gw * t);
+    }
+    add(T, clips.idle, st.idle, 1 - st.move);
+  });
+  layer(DATA.crouch, ground * st.crouch, (T, ang) => {
+    const [a, b, t] = ringPair(DATA.cwalk, ang);
+    add(T, a, st.cph + a.phase0, st.move * (1 - t));
+    add(T, b, st.cph + b.phase0, st.move * t);
+    add(T, clips.crouch, st.crT, 1 - st.move);
+  });
+  layer(DATA.stand, st.air, (T) => add(T, clips.air, st.airT, 1));
   return acc;
 }

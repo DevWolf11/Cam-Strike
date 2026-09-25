@@ -166,6 +166,7 @@ export class PlayerController {
       let wx = fx * input.move.y + rx * input.move.x, wz = fz * input.move.y + rz * input.move.x;
       const mag = Math.min(1, Math.hypot(wx, wz));
       if (mag > 0.001) { const l = Math.hypot(wx, wz); wx = wx / l * mag; wz = wz / l * mag; }
+      p.crouching = input.crouch;
       let speed = (p.scoped && w.scopedSpeed) ? w.scopedSpeed : w.speed;
       if (input.walk) speed *= 0.52;
       if (frozen || busy) { wx = wz = 0; }
