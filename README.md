@@ -93,9 +93,9 @@ Characters are real, fully textured and skinned models, one per outfit:
 | Team | Outfit | Model |
 |---|---|---|
 | T | Phoenix | ski mask and street clothes (`thug.glb`) |
-| T | Elite Crew | desert camo with a face wrap (`rebel.glb`) |
+| T | Elite Crew | MM-14 digital camo with a face wrap (`rebel.glb`) |
 | T | Separatist | armoured "Vanguard" soldier, recoloured grey (`soldier.glb`) |
-| T | Guerrilla | the Elite Crew model with a jungle-camo tint |
+| T | Guerrilla | woodland gear, helmet and balaclava (`militia.glb`) |
 | CT | SWAT | police gear and gas mask (`swat_gasmask.glb`) |
 | CT | SAS | urban camo and goggles (`swat_spec.glb`) |
 | CT | GIGN | blue uniform and helmet (`swat_blue.glb`) |
@@ -163,4 +163,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The Vanguard soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The Phoenix and Elite Crew models are free community models, auto-rigged with Mixamo. All were supplied by the project owner and converted for the game.
+three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The Vanguard soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The other character models are community models, rigged with Mixamo and converted for the game:
+
+- Phoenix: ["terrorist"](https://skfb.ly/6AnKG) by DJMaesen, licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Converted and optimised.
+- Elite Crew: ["Ukrainian Soldier"](https://skfb.ly/ot9Ny) by doctortex, licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Converted and optimised.
+- Guerrilla (`militia.glb`): supplied by the project owner. Source credit to be added.

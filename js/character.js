@@ -9,9 +9,9 @@ import { SkinnedBody, modelFor } from './skinned.js';
 export const OUTFITS = {
   T: [
     { name: 'Phoenix', model: 'thug', desc: 'Ski mask, street clothes', shirt: 0x8a6a45, sleeve: 0x7a5c3a, pants: 0x3f3a33, boots: 0x1c1a18, gloves: 0x222020, skin: 0xb88a64, vest: 0x5a4a35, head: 'balaclava', headColor: 0x222222, accent: 0xb3242a },
-    { name: 'Elite Crew', model: 'rebel', desc: 'Desert camo, face wrap', shirt: 0x5a6a3a, sleeve: 0x4a5a30, pants: 0x3a4a66, boots: 0x3a2a1a, gloves: 0x5a4030, skin: 0xc49a74, vest: 0x2a2a2a, head: 'bandana', headColor: 0xa02828, accent: 0xd8b040 },
+    { name: 'Elite Crew', model: 'rebel', desc: 'Digital camo, face wrap', shirt: 0x5a6a3a, sleeve: 0x4a5a30, pants: 0x3a4a66, boots: 0x3a2a1a, gloves: 0x5a4030, skin: 0xc49a74, vest: 0x2a2a2a, head: 'bandana', headColor: 0xa02828, accent: 0xd8b040 },
     { name: 'Separatist', model: 'vanguard', desc: 'Armoured, grey', shirt: 0x6a6e72, sleeve: 0x5a5e62, pants: 0x4a5040, boots: 0x222222, gloves: 0x303030, skin: 0xa87a58, vest: 0x40443a, head: 'gasmask', headColor: 0x2a2e2a, accent: 0x6a8a3a },
-    { name: 'Guerrilla', model: 'rebel', tint: [0x55663a, 0.5], desc: 'Jungle camo, face wrap', shirt: 0x4f5f2f, sleeve: 0x3f4f25, pants: 0x5a4a2f, boots: 0x2a2014, gloves: 0x3a3020, skin: 0x8a5a3a, vest: 0x3a3a22, head: 'cap', headColor: 0x6a5a30, accent: 0xc86a1e },
+    { name: 'Guerrilla', model: 'militia', desc: 'Woodland gear, balaclava', shirt: 0x4f5f2f, sleeve: 0x3f4f25, pants: 0x5a4a2f, boots: 0x2a2014, gloves: 0x3a3020, skin: 0x8a5a3a, vest: 0x3a3a22, head: 'cap', headColor: 0x6a5a30, accent: 0xc86a1e },
   ],
   CT: [
     { name: 'SWAT', model: 'swat_gasmask', desc: 'Police, gas mask', shirt: 0x2f4f7a, sleeve: 0x284470, pants: 0x283246, boots: 0x151515, gloves: 0x1a1a1a, skin: 0xd0a782, vest: 0x1f2630, head: 'helmet', headColor: 0x1f2a38, accent: 0x6fa8ff },

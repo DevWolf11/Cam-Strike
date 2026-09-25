@@ -15,6 +15,7 @@ export const MODELS = {
   swat_blue: 'assets/models/swat_blue.glb',
   rebel: 'assets/models/rebel.glb',
   thug: 'assets/models/thug.glb',
+  militia: 'assets/models/militia.glb',
 };
 const HIP_HEIGHT = 0.93;                 // our skeleton's hip height when standing
 const protos = {};

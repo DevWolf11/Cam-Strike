@@ -1,10 +1,10 @@
 // Offline cache: the whole game is static files, so cache-first works well.
-const CACHE = 'camstrike-v6';
+const CACHE = 'camstrike-v7';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './lib/three.module.min.js', './lib/peerjs.min.js',
   './lib/addons/GLTFLoader.js', './lib/addons/SkeletonUtils.js', './lib/addons/BufferGeometryUtils.js', './assets/models/soldier.glb',
-  './assets/models/swat_gasmask.glb', './assets/models/swat_spec.glb', './assets/models/swat_blue.glb', './assets/models/rebel.glb', './assets/models/thug.glb',
+  './assets/models/swat_gasmask.glb', './assets/models/swat_spec.glb', './assets/models/swat_blue.glb', './assets/models/rebel.glb', './assets/models/thug.glb', './assets/models/militia.glb',
   './js/main.js', './js/game.js', './js/world.js', './js/mapmesh.js', './js/agent.js', './js/character.js', './js/bot.js',
   './js/player.js', './js/hud.js', './js/input.js', './js/audio.js', './js/effects.js', './js/config.js', './js/geom.js',
   './js/textures.js', './js/sky.js', './js/skinned.js', './js/hands.js', './js/weapons3d.js', './js/grenades.js', './js/layout.js', './js/loadout.js', './js/net.js', './js/netgame.js',
