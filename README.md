@@ -94,14 +94,14 @@ Characters are real, fully textured and skinned models, one per outfit:
 |---|---|---|
 | T | Phoenix | ski mask and street clothes (`thug.glb`) |
 | T | Elite Crew | MM-14 digital camo with a face wrap (`rebel.glb`) |
-| T | Separatist | armoured "Vanguard" soldier, recoloured grey (`soldier.glb`) |
+| T | Separatist | balaclava and plate carrier (`terrorista.glb`) |
 | T | Guerrilla | woodland gear, helmet and balaclava (`militia.glb`) |
 | CT | SWAT | police gear and gas mask (`swat_gasmask.glb`) |
 | CT | SAS | urban camo and goggles (`swat_spec.glb`) |
 | CT | GIGN | blue uniform and helmet (`swat_blue.glb`) |
-| CT | SEAL | the SAS model with a woodland-camo tint |
+| CT | SEAL | olive tactical gear, headset and sunglasses (`tactical.glb`) |
 
-The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits whichever model the outfit uses to it every frame. That fit aims the hips, spine and head, uses two-bone IK for the arms and legs (so the hands really hold the gun), and curls the fingers into a grip. Any Mixamo-rigged character can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted from FBX to a single skinned mesh of about 14k triangles with 1024px colour and 512px normal textures (0.5–1.7 MB each). If a model can't load, that outfit falls back to the Vanguard soldier, and if that fails too, to built-in procedural characters.
+The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits whichever model the outfit uses to it every frame. That fit aims the hips, spine and head, uses two-bone IK for the arms and legs (so the hands really hold the gun), and curls the fingers into a grip. Any character with a Mixamo-named skeleton can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted to a single skinned mesh of about 14–16k triangles with compressed textures (0.5–1.8 MB each). The SEAL and Separatist models use one texture atlas each, so each character is a single draw call. The SEAL model's Character Creator skeleton was renamed to Mixamo bone names. The Separatist model came without a skeleton; it was rigged by copying the skeleton and skin weights of a Mixamo-rigged SWAT model onto it. If a model can't load, that outfit borrows another character's model, and if none load, the game uses built-in procedural characters.
 
 On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
 - it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
@@ -152,7 +152,7 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
 | `js/character.js` | Character skeleton, outfits, walk and aim poses, ragdoll physics, procedural fallback models |
-| `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip), outfit tinting |
+| `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
 | `js/weapons3d.js` | Gun, knife and grenade models, weapon skins |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
@@ -163,8 +163,11 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The Vanguard soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The other character models are community models, rigged with Mixamo and converted for the game:
+three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 
-- Phoenix: ["terrorist"](https://skfb.ly/6AnKG) by DJMaesen, licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Converted and optimised.
-- Elite Crew: ["Ukrainian Soldier"](https://skfb.ly/ot9Ny) by doctortex, licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/). Converted and optimised.
-- Guerrilla (`militia.glb`): supplied by the project owner. Source credit to be added.
+- Phoenix: ["terrorist"](https://skfb.ly/6AnKG) by DJMaesen. Rigged with Mixamo.
+- Elite Crew: ["Ukrainian Soldier"](https://skfb.ly/ot9Ny) by doctortex. Rigged with Mixamo.
+- Separatist: ["Terrorista"](https://skfb.ly/6xsAy) by jeferson. Rigged for the game.
+- SEAL: ["Soldier Full Tactical Gear (LowPolyGameReady)"](https://skfb.ly/pMDAV) by DanlyVostok.
+
+The Guerrilla model (`militia.glb`) is free to use without attribution.

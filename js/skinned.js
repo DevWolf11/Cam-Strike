@@ -7,21 +7,23 @@ import { clone as cloneSkinned } from '../lib/addons/SkeletonUtils.js';
 // mesh to them every frame: hips/spine/neck are aimed, arms and legs are solved with
 // two-bone IK using the model's own bone lengths, so any Mixamo character drops in.
 
-// Character models (converted from Mixamo FBX: merged to one skinned mesh, textures 1024/512, ~15k tris)
+// Character models, one per outfit (converted from FBX/OBJ: one skinned mesh with Mixamo bone names,
+// ~14-16k tris, compressed textures, 0.5-1.8MB each)
 export const MODELS = {
-  vanguard: 'assets/models/soldier.glb',
   swat_gasmask: 'assets/models/swat_gasmask.glb',
   swat_spec: 'assets/models/swat_spec.glb',
   swat_blue: 'assets/models/swat_blue.glb',
   rebel: 'assets/models/rebel.glb',
   thug: 'assets/models/thug.glb',
   militia: 'assets/models/militia.glb',
+  tactical: 'assets/models/tactical.glb',
+  terrorista: 'assets/models/terrorista.glb',
 };
 const HIP_HEIGHT = 0.93;                 // our skeleton's hip height when standing
 const protos = {};
 let loading = null;
 
-// Loads every model once; resolves when all have finished (failures just fall back)
+// Loads every model once; resolves when all have finished (an outfit whose model failed borrows another)
 export function loadCharacterModel() {
   if (!loading) {
     const loader = new GLTFLoader();
@@ -32,7 +34,7 @@ export function loadCharacterModel() {
   }
   return loading;
 }
-export const modelFor = (outfit) => (protos[outfit.model] ? outfit.model : protos.vanguard ? 'vanguard' : null);
+export const modelFor = (outfit) => (protos[outfit.model] ? outfit.model : Object.keys(protos)[0] ?? null);
 
 const boneName = (n) => n.replace(/^mixamorig:?/, '').replace(/_\d+$/, '');   // loaders suffix duplicate names with _1, _2...
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _m = new THREE.Matrix4();
@@ -82,9 +84,17 @@ function prepare(g) {
   const len = (a, b) => P(a).distanceTo(P(b)) * scale;
   root.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; o.receiveShadow = true; } });
   // finger curl axes: rigs orient finger bones differently (some mirror the left hand), so work out
-  // in world space which way bends each finger toward the palm (down in the bind T/A-pose)
-  const curl = [], down = new THREE.Vector3(0, -1, 0);
+  // in world space which way bends each finger toward the palm. The palm normal comes from the
+  // knuckles (works for T-poses and relaxed poses alike); without finger bones, assume palms down.
+  const curl = [];
   for (const side of ['Left', 'Right']) {
+    const palm = new THREE.Vector3(0, -1, 0);
+    if (bones[`${side}Hand`] && bones[`${side}HandIndex1`] && bones[`${side}HandPinky1`]) {
+      const h = P(`${side}Hand`);
+      palm.crossVectors(P(`${side}HandIndex1`).sub(h), P(`${side}HandPinky1`).sub(h)).normalize();
+      if (side === 'Left') palm.negate();
+    }
+    const down = palm;
     for (const f of ['Index', 'Middle', 'Ring', 'Pinky', 'Thumb']) for (let k = 1; k <= 3; k++) {
       const n = `${side}Hand${f}${k}`, next = bones[`${side}Hand${f}${k + 1}`];
       if (!bones[n] || !next) continue;
@@ -103,62 +113,14 @@ function prepare(g) {
   };
 }
 
-// ---------- team / outfit recolour ----------
-// Vanguard (one suit for everyone) is fully recoloured per outfit from its luminance.
-// The real uniforms keep their own textures; an outfit can add a light camo tint on top (outfit.tint).
-const matCache = new Map();
-function outfitMaterial(base, outfit, geo, full) {
-  if (!full && !outfit.tint) return base;
-  const key = base.uuid + outfit.name;
-  if (matCache.has(key)) return matCache.get(key);
-  const m = base.clone();
-  const tint = new THREE.Color(full ? outfit.shirt : outfit.tint[0]).lerp(new THREE.Color(outfit.vest), full ? 0.4 : 0);
-  const tint2 = new THREE.Color(full ? outfit.pants : outfit.tint[0]);
-  const amount = full ? 1 : outfit.tint[1];
-  // bind-pose "up" axis of the mesh, normalised so 0 = feet, 1 = top of the head
-  geo.computeBoundingBox();
-  const bb = geo.boundingBox, size = bb.getSize(new THREE.Vector3());
-  const ax = size.y >= size.z ? 1 : 2, ext = ax === 1 ? size.y : size.z, mn = ax === 1 ? bb.min.y : bb.min.z;
-  const axis = new THREE.Vector4(0, ax === 1 ? 1 / ext : 0, ax === 2 ? 1 / ext : 0, -mn / ext);
-  m.onBeforeCompile = (sh) => {
-    sh.uniforms.uTint = { value: tint };
-    sh.uniforms.uTint2 = { value: tint2 };
-    sh.uniforms.uAxis = { value: axis };
-    sh.uniforms.uAmount = { value: amount };
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uTint, uTint2;\nuniform float uAmount;\nvarying float vHeight;')
-      .replace('#include <map_fragment>', `#include <map_fragment>
-        {
-          vec3 c = diffuseColor.rgb;
-          float lum = dot(c, vec3(0.299, 0.587, 0.114));
-          float accent = step(0.15, c.r) * step(2.2 * max(c.g, c.b), c.r);   // keep saturated red markings
-          vec3 team = mix(uTint2, uTint, smoothstep(0.5, 0.56, vHeight));   // trousers vs upper body
-          vec3 tinted = team * (0.25 + lum * 1.9);
-          diffuseColor.rgb = mix(c, mix(tinted, c, accent * 0.8), uAmount);
-        }`);
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform vec4 uAxis;\nvarying float vHeight;')
-      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\nvHeight = dot(position, uAxis.xyz) + uAxis.w;');
-  };
-  m.customProgramCacheKey = () => 'outfit-tint';
-  matCache.set(key, m);
-  return m;
-}
-
 // ---------- one character instance ----------
 export class SkinnedBody {
   constructor(outfit) {
-    const id = modelFor(outfit), P = (this.P = protos[id]);
+    const P = (this.P = protos[modelFor(outfit)]);
     this.root = cloneSkinned(P.scene);
     this.root.scale.setScalar(P.scale);
     this.b = {};
-    const full = id === 'vanguard';
-    this.root.traverse((o) => {
-      if (o.isBone && !this.b[boneName(o.name)]) this.b[boneName(o.name)] = o;
-      if (o.isMesh && !/visor/i.test(o.name)) {
-        o.material = Array.isArray(o.material) ? o.material.map((m) => outfitMaterial(m, outfit, o.geometry, full)) : outfitMaterial(o.material, outfit, o.geometry, full);
-      }
-    });
+    this.root.traverse((o) => { if (o.isBone && !this.b[boneName(o.name)]) this.b[boneName(o.name)] = o; });
     // curl the fingers into a grip once; they never change
     for (const [n, axis, angle] of P.curl) if (angle && this.b[n]) this.b[n].rotateOnAxis(axis, angle);
   }
