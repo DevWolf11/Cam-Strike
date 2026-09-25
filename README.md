@@ -88,7 +88,7 @@ With friendly fire on, your bullets, knife and grenades hurt teammates at half d
 
 Bots see within a field of view with real line of sight (smokes block it). They hear gunshots and footsteps, need time to react, and aim with an error that tightens over time. They fire in bursts and strafe between bursts, and a flashbang blinds them. Terrorists pick a site, split across routes, smoke and flash the entrances on the execute, plant, then guard the bomb. Counter-Terrorists hold both sites and mid, rotate on callouts, throw HE and molotovs at enemies who break line of sight, and retake and defuse after a plant. Difficulty (Easy, Normal, Hard) changes reaction time, aim, turn speed, field of view and how often they use grenades.
 
-Characters are jointed models with rounded anatomy: plate carriers with magazine pouches and radios, helmets with headsets and night-vision mounts, gas masks, balaclavas, caps, knee pads, holsters, laced boots and gloved hands. They walk, strafe and aim with procedural animation.
+Characters are a fully modelled, textured and skinned soldier (the Mixamo "Vanguard" character that ships with three.js's examples, `assets/models/soldier.glb`), recoloured per team and outfit. The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits the model to it every frame. That fit aims the hips, spine and head, and uses two-bone IK for the arms and legs, so the hands really hold the gun. Any Mixamo-rigged character can be dropped in the same way. If the model can't load, the game falls back to built-in procedural characters.
 
 On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
 - it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
@@ -138,7 +138,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
-| `js/character.js` | Jointed character models, outfits, walk and aim poses, ragdoll physics |
+| `js/character.js` | Character skeleton, outfits, walk and aim poses, ragdoll physics, procedural fallback models |
+| `js/skinned.js` | Loads the skinned soldier model and fits it to the skeleton each frame (aim + two-bone IK), team recolouring |
 | `js/weapons3d.js` | Gun, knife and grenade models, weapon skins |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
@@ -149,4 +150,4 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`).
+three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo).

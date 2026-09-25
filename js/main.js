@@ -1,4 +1,5 @@
 import * as THREE from '../lib/three.module.min.js';
+import { loadCharacterModel } from './skinned.js';
 import { Game, buildRoster } from './game.js';
 import { ClientGame } from './netgame.js';
 import { NetHost, NetClient } from './net.js';
@@ -160,8 +161,9 @@ function matchOpts(extra = {}) {
   };
 }
 
-function startMatch(team) {
+async function startMatch(team) {
   lastTeam = team;
+  await loadCharacterModel();
   beginMatch((sc) => new Game(sc, camera, { ...matchOpts(), team, quality: $('quality').value, loadout: settings.loadout, outfit: settings.outfit }));
 }
 
@@ -301,7 +303,9 @@ $('lbCopy').onclick = async () => {
   catch { prompt('Copy this invite link:', link); }
   setTimeout(() => { $('lbCopy').textContent = 'Copy invite link'; }, 2000);
 };
-$('lbStart').onclick = () => {
+$('lbStart').onclick = async () => {
+  if (net?.role !== 'host') return;
+  await loadCharacterModel();
   if (net?.role !== 'host') return;
   const opts = matchOpts({ map: $('lbMap').value, fillBots: $('lbBots').checked });
   const roster = buildRoster(opts, net.humans());
@@ -350,6 +354,9 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 resize();
+
+// Start fetching the character model right away so it's ready before the first match
+loadCharacterModel();
 
 // ---------- PWA ----------
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});

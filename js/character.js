@@ -2,6 +2,7 @@ import * as THREE from '../lib/three.module.min.js';
 import { GeoBuilder } from './geom.js';
 import { world, isWall, cellOf } from './world.js';
 import { fabricTex } from './textures.js';
+import { SkinnedBody, characterModelReady } from './skinned.js';
 
 // ---------------- Outfits ----------------
 // Each team has several looks; bots get a random one, the player picks in the Loadout menu.
@@ -303,12 +304,20 @@ export class Character {
     const i = Number.isFinite(+outfitIndex) ? +outfitIndex : 0;
     this.outfit = list[((i % list.length) + list.length) % list.length];
     this.group = new THREE.Group();
-    this.limbs = LIMBS.map(([name, a, b, len]) => {
-      const mesh = new THREE.Mesh(limbGeo(name, this.outfit), mat());
-      mesh.matrixAutoUpdate = false; mesh.receiveShadow = true;
-      this.group.add(mesh);
-      return { name, a, b, len, mesh };
-    });
+    if (characterModelReady()) {
+      // skinned model; the torso "limb" survives only as an invisible carrier for attachments (bomb pack)
+      this.body = new SkinnedBody(this.outfit);
+      this.group.add(this.body.root);
+      const carrier = new THREE.Object3D(); carrier.matrixAutoUpdate = false; this.group.add(carrier);
+      this.limbs = [{ name: 'torso', a: 'pelvis', b: 'neck', len: LIMBS[0][3], mesh: carrier }];
+    } else {
+      this.limbs = LIMBS.map(([name, a, b, len]) => {
+        const mesh = new THREE.Mesh(limbGeo(name, this.outfit), mat());
+        mesh.matrixAutoUpdate = false; mesh.receiveShadow = true;
+        this.group.add(mesh);
+        return { name, a, b, len, mesh };
+      });
+    }
     this.J = Object.fromEntries(JOINTS.map((k) => [k, new THREE.Vector3()]));
     this.gun = null;
     const pack = new GeoBuilder().box(0.26, 0.3, 0.12, 0, 0.35, 0.2, 0x3a3a2a).box(0.16, 0.08, 0.02, 0, 0.42, 0.265, 0x223322).box(0.03, 0.03, 0.01, 0.06, 0.42, 0.27, 0xff2020);
@@ -430,6 +439,7 @@ export class Character {
       l.mesh.matrix.copy(_m);
       l.mesh.matrixWorldNeedsUpdate = true;
     }
+    if (this.body) this.body.fit(J);
   }
 
   // ---- ragdoll ----
@@ -511,7 +521,8 @@ export class Character {
   dispose() {
     RAGDOLLS.delete(this);
     this.scene.remove(this.group);
-    for (const l of this.limbs) l.mesh.geometry.dispose();
+    for (const l of this.limbs) l.mesh.geometry?.dispose();
+    this.body?.dispose();
     this.pack.geometry.dispose();
   }
 }
