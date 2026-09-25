@@ -88,7 +88,20 @@ With friendly fire on, your bullets, knife and grenades hurt teammates at half d
 
 Bots see within a field of view with real line of sight (smokes block it). They hear gunshots and footsteps, need time to react, and aim with an error that tightens over time. They fire in bursts and strafe between bursts, and a flashbang blinds them. Terrorists pick a site, split across routes, smoke and flash the entrances on the execute, plant, then guard the bomb. Counter-Terrorists hold both sites and mid, rotate on callouts, throw HE and molotovs at enemies who break line of sight, and retake and defuse after a plant. Difficulty (Easy, Normal, Hard) changes reaction time, aim, turn speed, field of view and how often they use grenades.
 
-Characters are a fully modelled, textured and skinned soldier (the Mixamo "Vanguard" character that ships with three.js's examples, `assets/models/soldier.glb`), recoloured per team and outfit. The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits the model to it every frame. That fit aims the hips, spine and head, and uses two-bone IK for the arms and legs, so the hands really hold the gun. Any Mixamo-rigged character can be dropped in the same way. If the model can't load, the game falls back to built-in procedural characters.
+Characters are real, fully textured and skinned models, one per outfit:
+
+| Team | Outfit | Model |
+|---|---|---|
+| T | Phoenix | ski mask and street clothes (`thug.glb`) |
+| T | Elite Crew | desert camo with a face wrap (`rebel.glb`) |
+| T | Separatist | armoured "Vanguard" soldier, recoloured grey (`soldier.glb`) |
+| T | Guerrilla | the Elite Crew model with a jungle-camo tint |
+| CT | SWAT | police gear and gas mask (`swat_gasmask.glb`) |
+| CT | SAS | urban camo and goggles (`swat_spec.glb`) |
+| CT | GIGN | blue uniform and helmet (`swat_blue.glb`) |
+| CT | SEAL | the SAS model with a woodland-camo tint |
+
+The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits whichever model the outfit uses to it every frame. That fit aims the hips, spine and head, uses two-bone IK for the arms and legs (so the hands really hold the gun), and curls the fingers into a grip. Any Mixamo-rigged character can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted from FBX to a single skinned mesh of about 14k triangles with 1024px colour and 512px normal textures (0.5–1.7 MB each). If a model can't load, that outfit falls back to the Vanguard soldier, and if that fails too, to built-in procedural characters.
 
 On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
 - it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
@@ -139,7 +152,7 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
 | `js/character.js` | Character skeleton, outfits, walk and aim poses, ragdoll physics, procedural fallback models |
-| `js/skinned.js` | Loads the skinned soldier model and fits it to the skeleton each frame (aim + two-bone IK), team recolouring |
+| `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip), outfit tinting |
 | `js/weapons3d.js` | Gun, knife and grenade models, weapon skins |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
@@ -150,4 +163,4 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo).
+three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The Vanguard soldier model comes from the three.js examples (`examples/models/gltf/Soldier.glb`, a character from Adobe Mixamo). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The Phoenix and Elite Crew models are free community models, auto-rigged with Mixamo. All were supplied by the project owner and converted for the game.
