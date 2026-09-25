@@ -2,6 +2,8 @@
 
 A tactical first-person shooter in the spirit of Counter-Strike, built to run in a mobile browser (Android Chrome) and installable as an app. Play solo against bots or online with friends. No build step and no downloads beyond the page itself: plain HTML + JavaScript modules + [three.js](https://threejs.org) (vendored in `lib/`, so it also works offline).
 
+▶ Play now: https://devwolf11.github.io/Cam-Strike/** (works on Android and desktop browsers; on your phone, use "Add to Home screen" to play full screen like an app)
+
 ## Game modes
 
 - **Competitive:** 5v5 bomb defusal, first to 8 rounds, friendly fire on.
