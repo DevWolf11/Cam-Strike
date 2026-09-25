@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { GLTFLoader } from '../lib/addons/GLTFLoader.js';
 import { clone as cloneSkinned } from '../lib/addons/SkeletonUtils.js';
+import { loadMocap } from './mocap.js';
 
 // Skinned character driven by the game's procedural skeleton.
 // The game (pose + ragdoll) computes 15 joint positions; this fits a Mixamo-rigged
@@ -27,9 +28,9 @@ let loading = null;
 export function loadCharacterModel() {
   if (!loading) {
     const loader = new GLTFLoader();
-    loading = Promise.all(Object.entries(MODELS).map(([id, url]) => loader.loadAsync(url)
+    loading = Promise.all([loadMocap(), ...Object.entries(MODELS).map(([id, url]) => loader.loadAsync(url)
       .then((g) => { protos[id] = prepare(g); })
-      .catch((e) => console.warn(`Character model ${id} unavailable`, e))))
+      .catch((e) => console.warn(`Character model ${id} unavailable`, e)))])
       .then(() => protos);
   }
   return loading;
@@ -57,6 +58,7 @@ const SEGMENTS = {
   Neck: [['Head'], 'right'], Head: [['HeadTop_End'], 'right', 'Neck'],
   LeftArm: [['LeftForeArm'], 'back'], LeftForeArm: [['LeftHand'], 'back'], RightArm: [['RightForeArm'], 'back'], RightForeArm: [['RightHand'], 'back'],
   LeftUpLeg: [['LeftLeg'], 'fwd'], LeftLeg: [['LeftFoot'], 'fwd'], RightUpLeg: [['RightLeg'], 'fwd'], RightLeg: [['RightFoot'], 'fwd'],
+  LeftFoot: [['LeftToeBase'], 'right'], RightFoot: [['RightToeBase'], 'right'],
 };
 const SPINE = ['Spine', 'Spine1', 'Spine2'];
 
@@ -80,6 +82,10 @@ function prepare(g) {
     const f = frameQuat(dir, refs[ref], new THREE.Quaternion());
     rest[n] = { worldQ: q, frameInv: f.invert() };
   }
+  // the neck leans forward in every real body: remember the neck->head direction in the torso's frame,
+  // so the head keeps that lean instead of being tipped back (faces looking up)
+  const torsoInv = frameQuat(new THREE.Vector3().subVectors(P('Neck'), P('Hips')), right, new THREE.Quaternion()).invert();
+  const neckLean = new THREE.Vector3().subVectors(P('Head'), P('Neck')).normalize().applyQuaternion(torsoInv);
   const scale = HIP_HEIGHT / Math.max(1e-3, (P('LeftUpLeg').y + P('RightUpLeg').y) / 2 - Math.min(P('LeftFoot').y, P('RightFoot').y) * 0 );
   const len = (a, b) => P(a).distanceTo(P(b)) * scale;
   root.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; o.receiveShadow = true; } });
@@ -106,7 +112,7 @@ function prepare(g) {
     }
   }
   return {
-    scene: root, rest, scale, curl, spine: SPINE.filter((b) => bones[b]),
+    scene: root, rest, scale, curl, neckLean, spine: SPINE.filter((b) => bones[b]),
     armLen: [len('LeftArm', 'LeftForeArm'), len('LeftForeArm', 'LeftHand')],
     legLen: [len('LeftUpLeg', 'LeftLeg'), len('LeftLeg', 'LeftFoot')],
     footLift: P('LeftFoot').y * scale,       // ankle height above the sole in the bind pose
@@ -156,7 +162,7 @@ export class SkinnedBody {
     this.aim(lower, T2.sub(E), n);
   }
 
-  fit(J) {
+  fit(J, toes = null) {
     const P = this.P;
     const up = new THREE.Vector3().subVectors(J.neck, J.pelvis);
     const right = new THREE.Vector3().subVectors(J.shR, J.shL);
@@ -169,7 +175,11 @@ export class SkinnedBody {
     const hipsUp = up.clone().normalize().lerp(new THREE.Vector3(0, 1, 0), 0.5);
     this.aim('Hips', hipsUp, hipRight);
     for (const s of P.spine) this.aim(s, up, right);
-    const neckDir = new THREE.Vector3().subVectors(J.head, J.neck);
+    // head: the model's own neck lean (in the torso frame), turned by however far the game's head
+    // joint is tilted from the torso axis (aim pitch, ragdoll flop)
+    const upN = _a.copy(up).normalize();
+    _q.setFromUnitVectors(upN, _b.subVectors(J.head, J.neck).normalize());
+    const neckDir = P.neckLean.clone().applyQuaternion(frameQuat(up, right, _q2)).applyQuaternion(_q);
     this.aim('Neck', neckDir, right);
     this.aim('Head', neckDir, right);
     // arms: the wrist sits a little behind the grip point
@@ -181,6 +191,9 @@ export class SkinnedBody {
     for (const [s, kn, ft] of [['Left', 'knL', 'ftL'], ['Right', 'knR', 'ftR']]) {
       const ankle = J[ft].clone(); ankle.y += Math.max(0, P.footLift - 0.05);
       this.limb(`${s}UpLeg`, `${s}Leg`, P.legLen, ankle, J[kn].clone().addScaledVector(fwd, 0.2), fwd);
+      // heel-toe roll from the motion capture
+      const foot = this.b[`${s}Foot`];
+      if (toes && foot && P.rest[`${s}Foot`]) this.aim(`${s}Foot`, new THREE.Vector3().subVectors(toes[s[0]], J[ft]), hipRight);
     }
   }
 

@@ -3,6 +3,7 @@ import { GeoBuilder } from './geom.js';
 import { world, isWall, cellOf } from './world.js';
 import { fabricTex } from './textures.js';
 import { SkinnedBody, modelFor } from './skinned.js';
+import { sampleLocomotion, MOCAP_JOINTS, MOCAP_REST_NECK } from './mocap.js';
 
 // ---------------- Outfits ----------------
 // Each team has several looks; bots get a random one, the player picks in the Loadout menu.
@@ -172,13 +173,15 @@ function shadeHex(hex, k) { const c = new THREE.Color(hex).multiplyScalar(k); re
 
 // ---------------- Poses ----------------
 const HAND_POSES = {
-  rifle:  { R: [0.14, 1.3, -0.26], L: null },
+  rifle:  { R: [0.13, 1.36, -0.22], L: null },           // shouldered: stock in the shoulder pocket
   pistol: { R: [0.07, 1.38, -0.48], L: [-0.02, 1.37, -0.45] },
   knife:  { R: [0.22, 1.12, -0.34], L: [-0.24, 1.02, -0.12] },
   nade:   { R: [0.24, 1.62, 0.06], L: [-0.18, 1.2, -0.3] },
   bomb:   { R: [0.1, 0.4, -0.35], L: [-0.1, 0.4, -0.35] },
 };
 
+// mocap: the source ankle joint sits ~8.7cm above the sole, the fitter expects the foot point 5cm above it
+const MOCAP_ANKLE = 0.037;
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
 
@@ -364,8 +367,24 @@ export class Character {
     this.kick = Math.max(0, (this.kick || 0) - dt * 8);
     const kick = this.kick * this.kick;
     const rl = a.reloadT > 0 && a.w?.reload ? Math.sin(Math.min(1, 1 - a.reloadT / a.w.reload) * Math.PI) : 0;
+    // body: motion-captured locomotion when available (walk/run in 8 directions, idle, jump, crouch
+    // while planting/defusing), else the procedural cycle. ox/oy/oz = how far the chest moved from
+    // its standing spot: the arms (which follow the aim) ride along with it.
+    const mc = sampleLocomotion(this.mst || (this.mst = {}), dt, { speed, dx, dz, air, crouch: kind === 'bomb' ? 1 : 0 });
+    let ox, oy, oz;
+    if (mc) {
+      const I = MOCAP_JOINTS();
+      for (const k of JOINTS) { const o = I[k]; J[k].set(mc[o], mc[o + 1], mc[o + 2]); }
+      const T = this.toes || (this.toes = { L: new THREE.Vector3(), R: new THREE.Vector3() });
+      T.L.set(mc[I.toL], mc[I.toL + 1] - MOCAP_ANKLE, mc[I.toL + 2]); T.R.set(mc[I.toR], mc[I.toR + 1] - MOCAP_ANKLE, mc[I.toR + 2]);
+      J.ftL.y -= MOCAP_ANKLE; J.ftR.y -= MOCAP_ANKLE;       // mocap ankle joint -> the fitter's foot point
+      const RN = MOCAP_REST_NECK();
+      ox = J.neck.x - RN[0]; oy = J.neck.y - RN[1]; oz = J.neck.z - RN[2];
+      for (const k of ['neck', 'shL', 'shR']) J[k].z += kick * 0.03;
+    } else {
     // lean into the run and slightly into strafes
     const leanZ = dz * 0.07 * sw, leanX = dx * 0.04 * sw;
+    ox = leanX; oy = bob - crouch * 0.9; oz = leanZ;
     const set = (k, x, y, z) => J[k].set(x, y, z);
     set('pelvis', 0, 0.95 + bob - crouch, 0);
     set('neck', leanX, 1.48 + bob - crouch * 0.9, 0.02 * sw + leanZ + kick * 0.03);
@@ -383,11 +402,13 @@ export class Character {
       if (ft.y < 0.05 && !air) ft.y = 0.05;
     };
     leg('L', ph); leg('R', ph + Math.PI);
-    // arms / hands follow aim pitch around the chest pivot
+    }
+    // arms / hands follow aim pitch around the chest pivot (the bomb is set down at a fixed spot)
     const P = HAND_POSES[kind] || HAND_POSES.rifle;
+    if (kind === 'bomb') ox = oy = oz = 0;
     const pitch = (a.pitch || 0) + kick * 0.12 - rl * 0.35, cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const pivotY = 1.38 + bob - crouch * 0.9;
-    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0] + leanX, pivotY + y * cp - z * sp, y * sp + z * cp + leanZ + kick * 0.06); };
+    const pivotY = 1.38 + oy;
+    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0] + ox, pivotY + y * cp - z * sp, y * sp + z * cp + oz + kick * 0.06); };
     rot(P.R, J.haR);
     if (P.L) rot(P.L, J.haL);
     else { // support hand on the foregrip
@@ -405,10 +426,10 @@ export class Character {
     const hp = (a.pitch || 0) * 0.5;
     J.head.set(J.neck.x, J.neck.y + 0.2 * Math.cos(hp), J.neck.z - 0.2 * Math.sin(hp));
     // to world
-    for (const k of JOINTS) {
-      const j = J[k], x = j.x, z = j.z;
-      j.set(a.pos.x + x * cy + z * sy, a.pos.y + j.y, a.pos.z - x * sy + z * cy);
-    }
+    const toWorld = (j) => { const x = j.x, z = j.z; j.set(a.pos.x + x * cy + z * sy, a.pos.y + j.y, a.pos.z - x * sy + z * cy); };
+    for (const k of JOINTS) toWorld(J[k]);
+    if (mc) { toWorld(this.toes.L); toWorld(this.toes.R); }
+    this.toesLive = !!mc;
     this.place();
     if (this.gun) {
       this.gun.visible = true;
@@ -439,7 +460,7 @@ export class Character {
       l.mesh.matrix.copy(_m);
       l.mesh.matrixWorldNeedsUpdate = true;
     }
-    if (this.body) this.body.fit(J);
+    if (this.body) this.body.fit(J, this.toesLive && !this.rag ? this.toes : null);
   }
 
   // ---- ragdoll ----

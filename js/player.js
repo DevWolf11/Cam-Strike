@@ -215,31 +215,40 @@ export class PlayerController {
     if (S.agent !== a) { S.agent = a; S.lastYaw = a.yaw; S.lastPitch = a.pitch; S.wasGround = a.onGround; }
     this.switchT = Math.max(0, this.switchT - dt);
     const k = Math.min(1, dt * 60);
-    // sway: the gun lags behind the look direction and springs back
+    // Springs keep every motion smooth and frame-rate independent (a spring per axis: x'' = k(target - x) - c x')
+    const h = Math.min(dt, 1 / 30);   // long frames would make the stiff springs unstable
+    const spring = (key, target, kk, c) => { const v = key + 'V', x = S[key] || 0, xv = S[v] || 0; S[v] = xv + ((target - x) * kk - xv * c) * h; S[key] = x + S[v] * h; return S[key]; };
+    // sway: the gun lags behind how fast you turn, overshoots a touch and settles
+    const idt = 1 / Math.max(dt, 1e-3);
     const dyaw = wrap(a.yaw - S.lastYaw), dpitch = a.pitch - S.lastPitch;
     S.lastYaw = a.yaw; S.lastPitch = a.pitch;
-    S.swayX += (Math.max(-0.06, Math.min(0.06, dyaw * 0.5)) - S.swayX) * Math.min(1, dt * 10);
-    S.swayY += (Math.max(-0.05, Math.min(0.05, dpitch * 0.5)) - S.swayY) * Math.min(1, dt * 10);
+    const clampS = (x, m) => Math.max(-m, Math.min(m, x));
+    spring('swayX', clampS(dyaw * idt * 0.009, 0.07), 140, 17);
+    spring('swayY', clampS(dpitch * idt * 0.008, 0.05), 140, 17);
     // spring recoil (kick is an impulse set when you fire)
     if (this.kick > 0) { S.recV += this.kick * (w.id === 'sniper' || w.id === 'shotgun' ? 16 : 9); this.kick = 0; }
     S.recV += (-S.rec * 320 - S.recV * 26) * dt; S.rec += S.recV * dt;
-    // landing dip
+    // landing dip; while airborne the gun trails the vertical motion
     if (a.onGround && !S.wasGround) S.landV -= Math.min(1.6, 0.5 + Math.abs(S.lastVy) * 0.12);
     S.wasGround = a.onGround; S.lastVy = a.vy;
     S.landV += (-S.land * 180 - S.landV * 18) * dt; S.land += S.landV * dt;
-    // walk bob (figure 8) + idle breathing
-    const moving = a.onGround ? Math.min(1, (a.speed || 0) / 5) : 0;
-    S.moveAmt += (moving - S.moveAmt) * Math.min(1, dt * 8);
-    this.bob += dt * (7 + moving * 4) * (S.moveAmt > 0.05 ? 1 : 0);
+    const airY = spring('airY', a.onGround ? 0 : clampS(-(a.vy || 0) * 0.004, 0.025), 90, 14);
+    // walk bob: a smooth figure-8 (side to side once per stride, a dip on every step) that follows the
+    // footstep cadence, with a little roll and yaw so the gun rocks instead of sliding around
+    const sp = a.onGround ? (a.speed || 0) : 0;
+    S.moveAmt += (Math.min(1, sp / 5.4) - S.moveAmt) * Math.min(1, dt * 6);
+    this.bob += dt * Math.PI * (1.2 + sp * 0.33) * (S.moveAmt > 0.02 ? 1 : 0);   // ~2 steps/s walking, ~3 running
     S.breath += dt * 1.6;
-    const m = S.moveAmt * (a.scoped ? 0.3 : 1);
-    const bx = Math.cos(this.bob) * 0.014 * m, by = -Math.abs(Math.sin(this.bob)) * 0.012 * m + Math.sin(S.breath) * 0.0025;
-    // strafe lean
-    const rxv = Math.cos(a.yaw) * a.vx - Math.sin(a.yaw) * a.vz;
+    const m = S.moveAmt * (a.scoped ? 0.3 : 1), sb = Math.sin(this.bob), dip = sb * sb;
+    const bx = sb * 0.011 * m, by = -dip * 0.011 * m + Math.sin(S.breath) * 0.0022 * (1 - m);
+    // strafe lean + inertia: speeding up pulls the gun back, stopping lets it swing forward
+    const cyw = Math.cos(a.yaw), syw = Math.sin(a.yaw);
+    const rxv = cyw * a.vx - syw * a.vz, fwv = -syw * a.vx - cyw * a.vz;
     S.lean += (-rxv * 0.012 - S.lean) * Math.min(1, dt * 8);
+    const inZ = spring('inZ', clampS(fwv * 0.0045, 0.03), 60, 9), inX = spring('inX', clampS(-rxv * 0.0025, 0.018), 60, 9);
 
-    let rotX = S.rec * 0.2 - S.swayY, rotY = -S.swayX * 1.2, rotZ = S.lean + S.swayX * 0.6;
-    let posX = S.swayX * 0.25, posY = S.land * 0.06 - S.swayY * 0.2, posZ = S.rec * 0.07;
+    let rotX = S.rec * 0.2 - S.swayY + dip * 0.012 * m, rotY = -S.swayX * 1.2 + sb * 0.008 * m, rotZ = S.lean + S.swayX * 0.6 + sb * 0.014 * m;
+    let posX = S.swayX * 0.25 + inX, posY = S.land * 0.06 - S.swayY * 0.2 - m * 0.006 + airY, posZ = S.rec * 0.07 + inZ;
     // draw: rises from below with a twist, eased out
     if (this.switchT > 0) { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
     if (a.reloadT > 0) {
