@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { puffTex, flashTex, decalAtlas, radialTex } from './textures.js';
 import * as W from './world.js';
+import { ragdollShot } from './character.js';
 
 // Pooled short-lived visual effects. Everything is preallocated so combat never allocates
 // meshes or materials: sprites for flashes/smoke, two point clouds for sparks and debris,
@@ -248,6 +249,7 @@ export class Effects {
       this.tracer(muzzle, end);
       if (kind === 1) this.blood(end, _n.subVectors(end, muzzle).normalize().clone(), weaponId === 'sniper' || weaponId === 'shotgun');
       else if (kind) this.impact(end, kind, weaponId === 'sniper');
+      if (kind !== 1) ragdollShot(muzzle, end, weaponId === 'sniper' ? 5 : weaponId === 'shotgun' ? 2.5 : 1.6);   // shots jolt bodies they pass through
     }
     const big = weaponId === 'shotgun' || weaponId === 'sniper';
     this.flash(muzzle, big ? 0.75 : 0.5);

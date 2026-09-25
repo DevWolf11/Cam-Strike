@@ -3,6 +3,7 @@ import { Game, aimDir } from './game.js';
 import { WEAPONS, GRENADES } from './config.js';
 import * as W from './world.js';
 import { surfKind } from './effects.js';
+import { setRagdollPushers, ragdollBlast } from './character.js';
 import * as SFX from './audio.js';
 import { grenadeGeometry } from './weapons3d.js';
 
@@ -105,6 +106,7 @@ export class ClientGame extends Game {
   // ---------------- per-frame ----------------
   update(dt) {
     this.time += dt; this.hostTime += dt;
+    setRagdollPushers(this.agents);
     const b = this.bomb, p = this.player;
     if ((this.phase === 'freeze' || this.phase === 'live') && this.timer > 0) this.timer = Math.max(0, this.timer - dt);
     if (b.state === 'planted') {
@@ -273,6 +275,7 @@ export class ClientGame extends Game {
       case 'ex': {
         this.bombMesh.visible = false;
         this.effects.explode(new THREE.Vector3(this.bomb.pos.x, this.bomb.pos.y + 1, this.bomb.pos.z));
+        ragdollBlast(this.bomb.pos.x, this.bomb.pos.y + 0.5, this.bomb.pos.z, 22, 11);
         SFX.explosion(this.soundFrom(this.bomb.pos).dist);
         this.bomb.state = 'exploded';
         break;

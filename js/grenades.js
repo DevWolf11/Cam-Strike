@@ -4,6 +4,7 @@ import { world, pointBlocked, hasLOS, groundAt } from './world.js';
 import { grenadeGeometry } from './weapons3d.js';
 import { radialTex, puffTex } from './textures.js';
 import * as SFX from './audio.js';
+import { ragdollBlast } from './character.js';
 
 const plain = new THREE.MeshLambertMaterial({ vertexColors: true });
 
@@ -23,9 +24,9 @@ export class Grenades {
   // Launch from an agent's eye along yaw/pitch. power 0..1 (short lob vs long throw)
   throw(a, type, power = 1) {
     const dir = new THREE.Vector3(-Math.sin(a.yaw) * Math.cos(a.pitch), Math.sin(a.pitch), -Math.cos(a.yaw) * Math.cos(a.pitch));
-    const speed = 7 + 11 * power;
+    const speed = 9 + 15 * power;           // up to 24 m/s: a full throw carries ~35m
     const pos = new THREE.Vector3(a.pos.x, a.eyeY - 0.1, a.pos.z).addScaledVector(dir, 0.4);
-    const vel = dir.multiplyScalar(speed).add(new THREE.Vector3(a.vx * 0.5, 1.6, a.vz * 0.5));
+    const vel = dir.multiplyScalar(speed).add(new THREE.Vector3(a.vx * 0.5, 2.0, a.vz * 0.5));
     const mesh = new THREE.Mesh(grenadeGeometry(type), plain);
     mesh.position.copy(pos); this.scene.add(mesh);
     this.flying.push({ type, pos, vel, t: 0, owner: a, mesh, still: 0 });
@@ -121,7 +122,7 @@ export class Grenades {
         if (!a.alive) continue;
         const d = Math.hypot(a.pos.x - P.x, a.pos.y + 1 - P.y, a.pos.z - P.z);
         if (d > def.radius || !hasLOS(P.x, P.y + 0.2, P.z, a.pos.x, a.pos.y + 1.1, a.pos.z, false)) continue;
-        const dmg = def.damage * Math.pow(1 - d / def.radius, 1.4);
+        const dmg = def.damage * Math.pow(1 - d / def.radius, 1.1);
         const dir = new THREE.Vector3(a.pos.x - P.x, 0.6, a.pos.z - P.z).normalize().multiplyScalar(6);
         g.applyDamage(a, n.owner, 'he', dmg, false, dir);
       }
@@ -152,7 +153,8 @@ export class Grenades {
   fx(type, x, y, z, owner = null) {
     const g = this.g, P = new THREE.Vector3(x, y, z), snd = g.soundFrom(P);
     if (type === 'he') {
-      g.effects.explode(P.clone(), 0.45);
+      g.effects.explode(P.clone(), 0.55);
+      ragdollBlast(P.x, P.y, P.z, GRENADES.he.radius, 5.5);
       SFX.heBoom(snd.dist);
     } else if (type === 'flash') {
       g.effects.flash(P.clone(), 6, 0.25); g.effects.pointLight(P, 40, 0.3);

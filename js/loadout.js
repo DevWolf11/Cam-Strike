@@ -71,7 +71,7 @@ export function openLoadout(settings, save) {
     const sk = $('loSkins');
     if (sel.startsWith('agent')) {
       const team = sel.slice(5);
-      sk.innerHTML = OUTFITS[team].map((o, i) => `<button class="skin ${settings.outfit[team] === i ? 'on' : ''}" data-outfit="${i}" style="--rar:${team === 'T' ? '#e0a33a' : '#5aa0ff'}"><b>${o.name}</b><small>${o.head}</small></button>`).join('');
+      sk.innerHTML = OUTFITS[team].map((o, i) => `<button class="skin ${settings.outfit[team] === i ? 'on' : ''}" data-outfit="${i}" style="--rar:${team === 'T' ? '#e0a33a' : '#5aa0ff'}"><b>${o.name}</b><small>${o.desc || o.head}</small></button>`).join('');
     } else {
       const cur = sel === 'knife' ? lo.knifeSkin : lo.skins[sel] || 'factory';
       sk.innerHTML = SKINS.map((s) => `<button class="skin ${cur === s.id ? 'on' : ''}" data-skin="${s.id}" style="--rar:${s.color}"><b>${s.name}</b><small>${s.rarity}</small></button>`).join('');
