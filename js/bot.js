@@ -1,6 +1,10 @@
 import { PLAYER, WEAPONS } from './config.js';
 import * as W from './world.js';
 
+// target heights follow a crouch (hitbox head centre / body-box top)
+const headH = (e) => PLAYER.headY - (PLAYER.headY - PLAYER.crouchHeadY) * (e.duck || 0);
+const bodyH = (e) => PLAYER.bodyTop - (PLAYER.bodyTop - PLAYER.crouchBodyTop) * (e.duck || 0);
+
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -73,8 +77,8 @@ function perceive(a, g) {
     if (d > 90) continue;
     const inFov = (dx * fx + dz * fz) / (d || 1) > fovCos || d < 4 || ai.hurtBy === e || e === ai.target;
     if (!inFov) continue;
-    const vis = W.hasLOS(a.pos.x, a.eyeY, a.pos.z, e.pos.x, e.pos.y + 1.62, e.pos.z) ||
-                W.hasLOS(a.pos.x, a.eyeY, a.pos.z, e.pos.x, e.pos.y + 1.1, e.pos.z);
+    const vis = W.hasLOS(a.pos.x, a.eyeY, a.pos.z, e.pos.x, e.pos.y + headH(e) - 0.04, e.pos.z) ||
+                W.hasLOS(a.pos.x, a.eyeY, a.pos.z, e.pos.x, e.pos.y + bodyH(e) - 0.36, e.pos.z);
     if (!vis) continue;
     const score = d * (e === ai.target ? 0.6 : 1);
     if (score < bestScore) { bestScore = score; best = e; }
@@ -281,7 +285,7 @@ export function updateBot(a, g, dt) {
   const w = a.w;
   if (e && e.alive && a.blindT < 0.4) {
     // ---- Combat ----
-    const aimY = e.pos.y + (ai.aimHead ? 1.64 : 1.18);
+    const aimY = e.pos.y + (ai.aimHead ? headH(e) - 0.02 : bodyH(e) - 0.28);
     const dx = e.pos.x - a.pos.x, dz = e.pos.z - a.pos.z, dist = Math.hypot(dx, dz);
     // occasionally lob an HE / molotov at a mid-range enemy
     if (ai.combatNade && !a.throwing && dist > 6 && dist < 30 && (a.nades.he > 0 || a.nades.molotov > 0) && ai.reactT < 0.1) {
@@ -326,6 +330,9 @@ export function updateBot(a, g, dt) {
       if (ai.pauseT > 0) ai.pauseT -= dt;
       else if (errNow < tol * 1.6 && a.moving < 0.35 + (w.id === 'smg' || w.id === 'shotgun' ? 0.5 : 0)) {
         shooting = true;
+        // some bots drop into a crouch to spray at range (steadier aim), like players do
+        if (ai.crouchRoll === undefined) ai.crouchRoll = Math.random();
+        a.crouching = dist > 14 && w.id !== 'sniper' && w.id !== 'shotgun' && ai.crouchRoll < 0.45;
         if (g.fire(a)) {
           if (w.auto) {
             if (--ai.burst <= 0) {
@@ -353,6 +360,7 @@ export function updateBot(a, g, dt) {
 
   // ---- No enemy in sight ----
   if (a.scoped) a.scoped = false;
+  a.crouching = false; ai.crouchRoll = undefined;       // stand back up once the fight is over
   if (a.weapon === 'nade' && !a.throwing && !ai.nade) a.equip(a.bestWeapon());
   if (inv && inv.mag < w.mag * 0.5 && inv.reserve > 0 && a.reloadT <= 0) g.reload(a);
   if (ai.waitT > 0) { ai.waitT -= dt; g.moveAgent(a, 0, 0, 0, dt); return; }

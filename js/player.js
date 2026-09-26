@@ -1,7 +1,8 @@
 import * as THREE from '../lib/three.module.min.js';
 import { WEAPONS } from './config.js';
 import { input, consume } from './input.js';
-import { weaponMesh, MUZZLE, setViewmodelEnv } from './weapons3d.js';
+import { weaponMesh, MUZZLE, setViewmodelEnv, gunMeta } from './weapons3d.js';
+import { FPArms, armsReady, handSpec } from './fparms.js';
 import { armMesh } from './hands.js';
 import { fabricTex } from './textures.js';
 import * as W from './world.js';
@@ -15,12 +16,15 @@ const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 // Where the gun's grip sits in view space, per weapon kind
 export const VM = {
   rifle:  { x: 0.19, y: -0.15, z: -0.34, s: 1, rx: 0.06, ry: 0.12, rz: 0.2 },
-  pistol: { x: 0.13, y: -0.13, z: -0.3, s: 1, rx: 0.05, ry: 0.08, rz: 0.08 },
+  pistol: { x: 0.11, y: -0.115, z: -0.3, s: 1, rx: 0.05, ry: 0.1, rz: 0.06 },
   knife:  { x: 0.14, y: -0.13, z: -0.27, s: 1, rx: 0.35, ry: 0.35, rz: -0.35 },
   nade:   { x: 0.15, y: -0.13, z: -0.3, s: 0.9, rx: 0.1, ry: 0.3, rz: 0 },
   sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
 
+// where the first-person arms' shoulders sit in view space: low and a little inward
+const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
+const _hv = new THREE.Vector3(), _hw = new THREE.Vector3(), _hf = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Vector3();
 export class PlayerController {
   constructor(game, camera, settings) {
     this.game = game; this.camera = camera; this.settings = settings;
@@ -49,6 +53,8 @@ export class PlayerController {
       watch: new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.3, metalness: 0.8, vertexColors: true }),
     };
     this.envBuilt = false;
+    // rigged first-person arms (fall back to the simple built-in hands if they didn't load)
+    this.arms = armsReady() ? new FPArms(this.vmScene, o.sleeve, { anchor: ARM_ANCHOR }) : null;
     game.on((type, d) => {
       if (type === 'shot' && d.agent === game.player && !d.confirm) this.kick = 1;
       if (type === 'roundStart') { this.setSpectate(null); this.deathT = 0; }
@@ -68,9 +74,10 @@ export class PlayerController {
     gun.position.set(P.x, P.y, P.z);
     gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
-    // hands and sleeves ride on the gun so they follow every animation
     const M = this.armMats, gunId = a.weapon;
-    if (kind === 'knife' || kind === 'nade') {
+    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(gunId), FORE[gunId] || FORE.rifle);
+    // hands and sleeves ride on the gun so they follow every animation
+    else if (kind === 'knife' || kind === 'nade') {
       gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
     } else {
       const R = armMesh('grip', M, { wrist: [0.032, -0.046, 0.05], dir: [0.3, -0.42, 1] });
@@ -92,6 +99,21 @@ export class PlayerController {
     gun.add(this.muzzle);
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
     this.switchT = 0.35;
+  }
+
+  // Put the rigged arms' hands on the gun (targets are in the gun's own space, see handSpec)
+  poseArms(visible) {
+    const A = this.arms, H = this.handSpec, gun = this.vmGun;
+    A.visible = visible;
+    if (!visible || !H) return;
+    this.vm.updateMatrixWorld(true);
+    const P = (v) => gun.localToWorld(_hv.set(v[0], v[1], v[2])).clone();
+    const D = (v) => _hv.set(v[0], v[1], v[2]).transformDirection(gun.matrixWorld).clone();
+    for (const s of ['R', 'L']) {
+      const h = H[s];
+      if (h.view) A.hand(s, _hw.set(...h.view.wrist), _hf.set(...h.view.fwd), _hp.set(...h.view.palm), _hq.set(...h.view.pole), h.curl);
+      else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl); }
+    }
   }
 
   setSpectate(a) {
@@ -166,6 +188,7 @@ export class PlayerController {
       let wx = fx * input.move.y + rx * input.move.x, wz = fz * input.move.y + rz * input.move.x;
       const mag = Math.min(1, Math.hypot(wx, wz));
       if (mag > 0.001) { const l = Math.hypot(wx, wz); wx = wx / l * mag; wz = wz / l * mag; }
+      p.crouching = input.crouch;
       let speed = (p.scoped && w.scopedSpeed) ? w.scopedSpeed : w.speed;
       if (input.walk) speed *= 0.52;
       if (frozen || busy) { wx = wz = 0; }
@@ -215,31 +238,40 @@ export class PlayerController {
     if (S.agent !== a) { S.agent = a; S.lastYaw = a.yaw; S.lastPitch = a.pitch; S.wasGround = a.onGround; }
     this.switchT = Math.max(0, this.switchT - dt);
     const k = Math.min(1, dt * 60);
-    // sway: the gun lags behind the look direction and springs back
+    // Springs keep every motion smooth and frame-rate independent (a spring per axis: x'' = k(target - x) - c x')
+    const h = Math.min(dt, 1 / 30);   // long frames would make the stiff springs unstable
+    const spring = (key, target, kk, c) => { const v = key + 'V', x = S[key] || 0, xv = S[v] || 0; S[v] = xv + ((target - x) * kk - xv * c) * h; S[key] = x + S[v] * h; return S[key]; };
+    // sway: the gun lags behind how fast you turn, overshoots a touch and settles
+    const idt = 1 / Math.max(dt, 1e-3);
     const dyaw = wrap(a.yaw - S.lastYaw), dpitch = a.pitch - S.lastPitch;
     S.lastYaw = a.yaw; S.lastPitch = a.pitch;
-    S.swayX += (Math.max(-0.06, Math.min(0.06, dyaw * 0.5)) - S.swayX) * Math.min(1, dt * 10);
-    S.swayY += (Math.max(-0.05, Math.min(0.05, dpitch * 0.5)) - S.swayY) * Math.min(1, dt * 10);
+    const clampS = (x, m) => Math.max(-m, Math.min(m, x));
+    spring('swayX', clampS(dyaw * idt * 0.009, 0.07), 140, 17);
+    spring('swayY', clampS(dpitch * idt * 0.008, 0.05), 140, 17);
     // spring recoil (kick is an impulse set when you fire)
     if (this.kick > 0) { S.recV += this.kick * (w.id === 'sniper' || w.id === 'shotgun' ? 16 : 9); this.kick = 0; }
     S.recV += (-S.rec * 320 - S.recV * 26) * dt; S.rec += S.recV * dt;
-    // landing dip
+    // landing dip; while airborne the gun trails the vertical motion
     if (a.onGround && !S.wasGround) S.landV -= Math.min(1.6, 0.5 + Math.abs(S.lastVy) * 0.12);
     S.wasGround = a.onGround; S.lastVy = a.vy;
     S.landV += (-S.land * 180 - S.landV * 18) * dt; S.land += S.landV * dt;
-    // walk bob (figure 8) + idle breathing
-    const moving = a.onGround ? Math.min(1, (a.speed || 0) / 5) : 0;
-    S.moveAmt += (moving - S.moveAmt) * Math.min(1, dt * 8);
-    this.bob += dt * (7 + moving * 4) * (S.moveAmt > 0.05 ? 1 : 0);
+    const airY = spring('airY', a.onGround ? 0 : clampS(-(a.vy || 0) * 0.004, 0.025), 90, 14);
+    // walk bob: a smooth figure-8 (side to side once per stride, a dip on every step) that follows the
+    // footstep cadence, with a little roll and yaw so the gun rocks instead of sliding around
+    const sp = a.onGround ? (a.speed || 0) : 0;
+    S.moveAmt += (Math.min(1, sp / 5.4) - S.moveAmt) * Math.min(1, dt * 6);
+    this.bob += dt * Math.PI * (1.2 + sp * 0.33) * (S.moveAmt > 0.02 ? 1 : 0);   // ~2 steps/s walking, ~3 running
     S.breath += dt * 1.6;
-    const m = S.moveAmt * (a.scoped ? 0.3 : 1);
-    const bx = Math.cos(this.bob) * 0.014 * m, by = -Math.abs(Math.sin(this.bob)) * 0.012 * m + Math.sin(S.breath) * 0.0025;
-    // strafe lean
-    const rxv = Math.cos(a.yaw) * a.vx - Math.sin(a.yaw) * a.vz;
+    const m = S.moveAmt * (a.scoped ? 0.3 : 1), sb = Math.sin(this.bob), dip = sb * sb;
+    const bx = sb * 0.011 * m, by = -dip * 0.011 * m + Math.sin(S.breath) * 0.0022 * (1 - m);
+    // strafe lean + inertia: speeding up pulls the gun back, stopping lets it swing forward
+    const cyw = Math.cos(a.yaw), syw = Math.sin(a.yaw);
+    const rxv = cyw * a.vx - syw * a.vz, fwv = -syw * a.vx - cyw * a.vz;
     S.lean += (-rxv * 0.012 - S.lean) * Math.min(1, dt * 8);
+    const inZ = spring('inZ', clampS(fwv * 0.0045, 0.03), 60, 9), inX = spring('inX', clampS(-rxv * 0.0025, 0.018), 60, 9);
 
-    let rotX = S.rec * 0.2 - S.swayY, rotY = -S.swayX * 1.2, rotZ = S.lean + S.swayX * 0.6;
-    let posX = S.swayX * 0.25, posY = S.land * 0.06 - S.swayY * 0.2, posZ = S.rec * 0.07;
+    let rotX = S.rec * 0.2 - S.swayY + dip * 0.012 * m, rotY = -S.swayX * 1.2 + sb * 0.008 * m, rotZ = S.lean + S.swayX * 0.6 + sb * 0.014 * m;
+    let posX = S.swayX * 0.25 + inX, posY = S.land * 0.06 - S.swayY * 0.2 - m * 0.006 + airY, posZ = S.rec * 0.07 + inZ;
     // draw: rises from below with a twist, eased out
     if (this.switchT > 0) { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
     if (a.reloadT > 0) {
@@ -257,6 +289,7 @@ export class PlayerController {
     vm.position.set(bx + posX, by + posY, posZ);
     vm.rotation.set(rotX, rotY, rotZ);
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
+    if (this.arms) this.poseArms(vm.visible);
     this.vmCamera.aspect = this.camera.aspect;
     this.vmCamera.updateProjectionMatrix();
     // viewmodel lighting follows the map: dim it when you stand in shade or indoors

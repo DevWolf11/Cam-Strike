@@ -1,12 +1,11 @@
 import * as THREE from '../lib/three.module.min.js';
 import { GRENADES } from './config.js';
 import { world, pointBlocked, hasLOS, groundAt } from './world.js';
-import { grenadeGeometry } from './weapons3d.js';
+import { grenadeObject } from './weapons3d.js';
 import { radialTex, puffTex } from './textures.js';
 import * as SFX from './audio.js';
 import { ragdollBlast } from './character.js';
 
-const plain = new THREE.MeshLambertMaterial({ vertexColors: true });
 
 // Thrown projectiles and their lingering effects (smoke clouds, fire patches).
 export class Grenades {
@@ -27,7 +26,7 @@ export class Grenades {
     const speed = 9 + 15 * power;           // up to 24 m/s: a full throw carries ~35m
     const pos = new THREE.Vector3(a.pos.x, a.eyeY - 0.1, a.pos.z).addScaledVector(dir, 0.4);
     const vel = dir.multiplyScalar(speed).add(new THREE.Vector3(a.vx * 0.5, 2.0, a.vz * 0.5));
-    const mesh = new THREE.Mesh(grenadeGeometry(type), plain);
+    const mesh = grenadeObject(type);
     mesh.position.copy(pos); this.scene.add(mesh);
     this.flying.push({ type, pos, vel, t: 0, owner: a, mesh, still: 0 });
     a.nades[type]--;

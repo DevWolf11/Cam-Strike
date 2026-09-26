@@ -98,8 +98,8 @@ export class Game {
     this.round = 0; this.phase = 'freeze'; this.timer = 0; this.matchWinner = null;
 
     this.bombMesh = weaponMesh('bomb');
-    this.bombLed = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
-    this.bombLed.position.set(0.08, 0.07, 0.04); this.bombMesh.add(this.bombLed);
+    this.bombLed = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
+    this.bombLed.position.set(0.03, 0.062, -0.035); this.bombMesh.add(this.bombLed);
     this.bombMesh.visible = false; scene.add(this.bombMesh);
     this.bomb = {};
     this.startRound();
@@ -200,6 +200,7 @@ export class Game {
 
   // ---------------- Movement ----------------
   moveAgent(a, wishX, wishZ, maxSpeed, dt, jump = false) {
+    if (a.duck > 0) maxSpeed *= 1 - (1 - PLAYER.crouchSpeed) * a.duck;
     const tvx = wishX * maxSpeed, tvz = wishZ * maxSpeed;
     const accel = a.onGround ? ((wishX || wishZ) ? 38 : 26) : 5;
     const dvx = tvx - a.vx, dvz = tvz - a.vz, dl = Math.hypot(dvx, dvz), mx = accel * dt;
@@ -264,6 +265,7 @@ export class Game {
     s += a.moving * w.moveSpread;
     if (!a.onGround) s += 0.1;
     s += Math.min(a.sprayIdx, 12) * w.spraySpread;
+    if (a.duck > 0 && a.onGround) s *= 1 - (1 - PLAYER.crouchSpread) * a.duck;
     return s;
   }
 
@@ -395,12 +397,12 @@ export class Game {
   // Where was agent b at host time t? (for lag-compensated hit detection)
   posAt(b, t) {
     const h = b.hist;
-    if (t == null || !h || h.length < 2 || t >= h[h.length - 1][0]) return b.pos;
+    if (t == null || !h || h.length < 2 || t >= h[h.length - 1][0]) return { x: b.pos.x, y: b.pos.y, z: b.pos.z, duck: b.duck };
     let i = h.length - 1;
     while (i > 0 && h[i - 1][0] > t) i--;
-    if (i === 0) return { x: h[0][1], y: h[0][2], z: h[0][3] };
+    if (i === 0) return { x: h[0][1], y: h[0][2], z: h[0][3], duck: h[0][4] };
     const A = h[i - 1], B = h[i], k = (t - A[0]) / Math.max(1e-6, B[0] - A[0]);
-    return { x: A[1] + (B[1] - A[1]) * k, y: A[2] + (B[2] - A[2]) * k, z: A[3] + (B[3] - A[3]) * k };
+    return { x: A[1] + (B[1] - A[1]) * k, y: A[2] + (B[2] - A[2]) * k, z: A[3] + (B[3] - A[3]) * k, duck: A[4] + (B[4] - A[4]) * k };
   }
 
   traceShot(shooter, o, d, maxDist, rewind = null) {
@@ -409,13 +411,13 @@ export class Game {
     const ff = this.rules.friendlyFire;
     for (const b of this.agents) {
       if (!b.alive || b === shooter || (b.team === shooter.team && !ff)) continue;
-      const bp = rewind != null ? this.posAt(b, rewind) : b.pos;
+      const bp = rewind != null ? this.posAt(b, rewind) : b.pos, duck = rewind != null ? bp.duck : b.duck;
       const dx = bp.x - o.x, dz = bp.z - o.z, along = dx * d.x + dz * d.z;
       if (along < -1 || along > best + 1) continue;
-      _v.set(bp.x, bp.y + PLAYER.headY, bp.z);
+      _v.set(bp.x, bp.y + Agent.headY(duck), bp.z);
       let t = raySphere(o, d, _v, PLAYER.headRadius);
       if (t < best) { best = t; agent = b; head = true; }
-      t = rayAABB(o, d, bp.x - PLAYER.bodyHalf, bp.y, bp.z - PLAYER.bodyHalf, bp.x + PLAYER.bodyHalf, bp.y + PLAYER.bodyTop, bp.z + PLAYER.bodyHalf);
+      t = rayAABB(o, d, bp.x - PLAYER.bodyHalf, bp.y, bp.z - PLAYER.bodyHalf, bp.x + PLAYER.bodyHalf, bp.y + Agent.bodyTop(duck), bp.z + PLAYER.bodyHalf);
       if (t < best) { best = t; agent = b; head = false; }
     }
     return { dist: best, agent, head, ny: agent ? 0 : wall.ny };
@@ -613,7 +615,7 @@ export class Game {
     if (this.hasRemotes) for (const a of this.agents) {
       if (!a.alive) continue;
       const h = a.hist || (a.hist = []);
-      h.push([this.time, a.pos.x, a.pos.y, a.pos.z]);
+      h.push([this.time, a.pos.x, a.pos.y, a.pos.z, a.duck]);
       while (h.length > 2 && h[0][0] < this.time - 1) h.shift();
     }
 
@@ -670,7 +672,7 @@ export class Game {
       a.vx = st.v[0]; a.vz = st.v[1]; a.vy = st.v[2]; a.onGround = !!st.g;
       a.speed = Math.hypot(a.vx, a.vz); a.moving = Math.max(0, Math.min(1, (a.speed - 1.4) / 3.6));
     }
-    a.yaw = st.yaw; a.pitch = st.pitch; a.scoped = !!st.sc; a.useHeld = !!st.use;
+    a.yaw = st.yaw; a.pitch = st.pitch; a.scoped = !!st.sc; a.useHeld = !!st.use; a.crouching = !!st.cr;
     if (st.w && (st.w !== a.weapon || (st.w === 'nade' && st.ns !== a.nadeSel)) && !a.throwing) {
       if (a.equip(st.w, st.ns)) a.fireCd = Math.min(a.fireCd, 0.05);
     }

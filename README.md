@@ -50,7 +50,7 @@ Everything is generated in code, with no image files: textures are painted onto 
 - **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, starburst muzzle flashes that light up nearby walls, layered explosions (flash, fireball, smoke, sparks) with camera shake, smoke clouds, and molotovs that give off smoke and embers.
 - **Weapons:** every gun is modelled from real-style side profiles with rounded edges and turned barrels. That means a stamped receiver with rivets and a curved 30-round magazine on the AR-47, a roller-lock SMG with an integral suppressor, a pump shotgun with a vent rib, a thumbhole sniper with a turreted scope, and a pistol with slide serrations. Knives and grenades get the same treatment. In first person, steel, wood and polymer use physically based materials that reflect the map's sky, and your hands have real fingers wrapped around the grip and handguard.
 - **Animation:**
-  - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land and bobs in a figure-8 as you walk.
+  - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land, trails your jumps, and bobs in a figure-8 in step with your footsteps. Every motion is spring-based and frame-rate independent, so it feels the same at 30 and 60 fps.
   - The gun is lit by the map's sun and darkens when you step into shade.
   - Other players' legs move the way they're actually going (strafe, backpedal), and they lean into runs, kick when firing and reach for the magazine when reloading.
 
@@ -78,9 +78,15 @@ On every setting the game watches its frame rate. If your device can't keep up (
 
 A full-strength throw carries a grenade about 35m; the underhand lob is for short, precise tosses. Also available: Kevlar + Helmet ($1000) and a Defuse Kit ($400, CT only). Headshots do 4× damage. You're most accurate standing still, and the crosshair shows your current spread.
 
+### Weapon models and first-person arms
+
+Every gun, the three grenades and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18 and a C4 bundle). Each has two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knives and the molotov are still built in code.
+
+In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist): the right hand wraps the grip with the index finger on the trigger, and the left hand cradles the handguard with its thumb along the side. Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. Pistols are held one-handed. If the models can't load, the game falls back to its built-in guns and hands.
+
 ### Skins and agents
 
-In **Loadout & skins** you can give every gun and the knife one of 12 skins, from Factory New up to Covert (Desert Storm, Tiger Tooth, Crimson Web, Neon Rider, Dragon Scale, Nebula, Gilded and more). You can also pick a knife style (Classic, Karambit, Butterfly, Bayonet) and an agent outfit for each team (T: Phoenix, Elite Crew, Separatist, Guerrilla; CT: SWAT, SAS, GIGN, SEAL). A live 3D preview shows the result. Bots roll random outfits and skins.
+In **Loadout & skins** you can give every gun and the knife one of 12 skins (the skin's pattern is painted over the model's own texture, so the metal parts keep their shading and gold skins turn metallic), from Factory New up to Covert (Desert Storm, Tiger Tooth, Crimson Web, Neon Rider, Dragon Scale, Nebula, Gilded and more). You can also pick a knife style (Classic, Karambit, Butterfly, Bayonet) and an agent outfit for each team (T: Phoenix, Elite Crew, Separatist, Guerrilla; CT: SWAT, SAS, GIGN, SEAL). A live 3D preview shows the result. Bots roll random outfits and skins.
 
 ### Friendly fire and teamkills
 
@@ -103,7 +109,22 @@ Characters are real, fully textured and skinned models, one per outfit:
 | CT | GIGN | blue uniform and helmet (`swat_blue.glb`) |
 | CT | SEAL | olive tactical gear, headset and sunglasses (`tactical.glb`) |
 
-The game still animates them procedurally: it computes a skeleton for walking, strafing, aiming, reloading and ragdolls, and `js/skinned.js` fits whichever model the outfit uses to it every frame. That fit aims the hips, spine and head, uses two-bone IK for the arms and legs (so the hands really hold the gun), and curls the fingers into a grip. Any character with a Mixamo-named skeleton can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted to a single skinned mesh of about 14–16k triangles with compressed textures (0.5–1.8 MB each). The SEAL and Separatist models use one texture atlas each, so each character is a single draw call. The SEAL model's Character Creator skeleton was renamed to Mixamo bone names. The Separatist model came without a skeleton; it was rigged by copying the skeleton and skin weights of a Mixamo-rigged SWAT model onto it. If a model can't load, that outfit borrows another character's model, and if none load, the game uses built-in procedural characters.
+They move with **motion capture**, from Mixamo's "Pro Rifle Pack":
+- Walking and running in 8 directions are blended by speed and direction, with the cycle length matched to the movement speed so feet don't slide.
+- There are also an idle stance, a mid-air pose for jumps, and a kneel while planting or defusing.
+- The clips are stored as trajectories of the game's own joints (`assets/anims/locomotion.json`, 76 KB), not as bone rotations, so the same data drives every character regardless of how its skeleton is built.
+- The rifle pack's bladed stance is mostly turned back toward the aim. The direction clips are picked at a matching offset, so the feet still step along the real travel direction.
+- There's a full crouching set too: a kneel when still, and crouch-walks in 8 directions.
+- The upper body stays on the aim: the gun is shouldered and pointed where the player looks, and it moves with the captured torso.
+- **Turning in place:** a character standing still keeps its feet planted while the torso twists toward the aim. Past about 50° the feet step round to catch up, leading with the foot on the turning side.
+
+`js/skinned.js` fits whichever model the outfit uses to those joints every frame. That fit:
+- aims the hips, spine and head, keeping each model's natural neck lean;
+- uses two-bone IK for the arms and legs, so the hands really hold the gun;
+- rolls the feet heel-to-toe from the captured toe positions;
+- curls the fingers into a grip.
+
+Without the motion data, a procedural walk cycle takes over. Any character with a Mixamo-named skeleton can be dropped in by adding it to `MODELS` in `js/skinned.js` and pointing an outfit at it. Each model was converted to a single skinned mesh of about 14–16k triangles with compressed textures (0.5–1.8 MB each). The SEAL and Separatist models use one texture atlas each, so each character is a single draw call. The SEAL model's Character Creator skeleton was renamed to Mixamo bone names. The Separatist model came without a skeleton; it was rigged by copying the skeleton and skin weights of a Mixamo-rigged SWAT model onto it. If a model can't load, that outfit borrows another character's model, and if none load, the game uses built-in procedural characters.
 
 On death they become **ragdolls** (verlet physics). A body falls with the force of the hit and has full collision:
 - it slides along walls, stops at ceilings, and lands on stairs, crates and ledges instead of passing through them;
@@ -119,10 +140,18 @@ On death they become **ragdolls** (verlet physics). A body falls with the force 
 - Hold the red button to fire, and keep dragging on it to aim while you shoot. There's a second fire button on the left.
 - The weapon bar at the bottom switches between primary, pistol, knife and each grenade type. With a grenade out, fire throws it and the scope button lobs it underhand.
 - Hold **USE** (it appears on a site or at the bomb) to plant or defuse.
+- The **crouch** button (the down arrow next to jump) toggles crouching.
 - **Controls scale with the screen.** Tablets get proportionally bigger buttons and minimap. **Controls size** and **Minimap size** sliders are in the menu and the pause screen. **Move & resize buttons** lets you drag any control anywhere and resize each one; the layout is saved on your device.
 - Aim assist (on by default for touch) slows your look over an enemy and gently pulls toward them while you move or shoot.
 
-**Keyboard + mouse:** WASD move, mouse look (click to capture), left click fire or throw, right click scope or lob, `R` reload, hold `E` plant/defuse, `Space` jump, `Shift` walk, `1` primary, `2` pistol, `3` knife, `4` grenades (press again to cycle), `Q` last weapon, `B` buy, `Tab` scoreboard, `Esc` pause.
+**Crouching:**
+- You move at a third of the speed, and crouch-walking makes no footstep sound.
+- Your spread is about 30% tighter.
+- Your eye line and hitboxes drop, so you can hide behind low cover.
+- Lag compensation rewinds the crouch along with your position.
+- Bots aim at a crouched player's real head height, and some of them crouch to spray at range.
+
+**Keyboard + mouse:** WASD move, mouse look (click to capture), left click fire or throw, right click scope or lob, `R` reload, hold `E` plant/defuse, `Space` jump, `Shift` walk, hold `C` or `Ctrl` crouch, `1` primary, `2` pistol, `3` knife, `4` grenades (press again to cycle), `Q` last weapon, `B` buy, `Tab` scoreboard, `Esc` pause.
 
 ## Run it
 
@@ -153,9 +182,11 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
-| `js/character.js` | Character skeleton, outfits, walk and aim poses, ragdoll physics, procedural fallback models |
+| `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
+| `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
 | `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
-| `js/weapons3d.js` | Gun, knife and grenade models, weapon skins |
+| `js/weapons3d.js` | Loads the gun, grenade and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/fparms.js` | Rigged first-person arms: IK hand placement on each gun, finger grips |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
 | `js/hud.js`, `js/layout.js`, `js/loadout.js` | HUD and buy menu, adaptive and editable touch layout, loadout screen |
@@ -165,7 +196,7 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
-three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models are Adobe Mixamo characters. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
+three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models and the locomotion animations (Pro Rifle Pack) come from Adobe Mixamo. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 
 - Phoenix: ["terrorist"](https://skfb.ly/6AnKG) by DJMaesen. Rigged with Mixamo.
 - Elite Crew: ["Ukrainian Soldier"](https://skfb.ly/ot9Ny) by doctortex. Rigged with Mixamo.
@@ -173,3 +204,16 @@ three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons
 - SEAL: ["Soldier Full Tactical Gear (LowPolyGameReady)"](https://skfb.ly/pMDAV) by DanlyVostok.
 
 The Guerrilla model (`militia.glb`) is free to use without attribution.
+
+Weapon and first-person arm models, converted and optimised for the game (`assets/weapons/`), licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) unless noted:
+
+- Viper SMG: ["MP5SD"](https://skfb.ly/oyUN9) by ecler
+- Breacher 12G: ["Remington 870 Shotgun"](https://skfb.ly/o9MZx) by Milin Andrei
+- AR-47 Rifle: ["AK 47 PBR"](https://skfb.ly/6YAOL) by ErhanMatur
+- Longshot .338: ["AWP"](https://skfb.ly/6Z8yp) by Rifeor
+- P-9 Pistol: ["Glock 17 Pistol | Low Poly Game Ready 3D Model"](https://sketchfab.com/3d-models/glock-17-pistol-low-poly-game-ready-3d-model-6ca031e39a274fe39416b1e21bedd76c) by JaNaZa_ZaIb, under the Sketchfab Standard license
+- HE grenade: ["M67"](https://skfb.ly/oDYJJ) by Firewarden
+- Flashbang: ["M84 Stun Grenade 'Flashbang'"](https://skfb.ly/6RKVO) by Vanillatography
+- Smoke grenade: ["M18 Smoke Grenade"](https://skfb.ly/6Soqp) by Vanillatography
+- C4: ["Simple C4- Bomb"](https://skfb.ly/6zLxq) by Blender3D
+- First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen

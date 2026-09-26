@@ -2,6 +2,7 @@ import * as THREE from '../lib/three.module.min.js';
 import { SKINS, KNIVES, weaponMesh } from './weapons3d.js';
 import { OUTFITS, Character } from './character.js';
 import { WEAPONS } from './config.js';
+import { loadCharacterModel } from './skinned.js';
 
 const $ = (id) => document.getElementById(id);
 const ITEMS = ['knife', 'pistol', 'smg', 'shotgun', 'rifle', 'sniper'];
@@ -36,9 +37,11 @@ export function openLoadout(settings, save) {
       char.setGun(weaponMesh('rifle', lo));
       cam.position.set(0, 1.1, 3.4); cam.lookAt(0, 0.95, 0);
     } else {
-      model = weaponMesh(sel, lo);
-      const len = sel === 'knife' ? 0.3 : WEAPONS[sel].len;
-      model.scale.setScalar(0.9 / Math.max(0.3, len));
+      // spin around the middle of the gun (its origin is the grip), sized to fit
+      const gun = weaponMesh(sel, lo), box = new THREE.Box3().setFromObject(gun), size = box.getSize(new THREE.Vector3());
+      gun.position.copy(box.getCenter(new THREE.Vector3())).negate();
+      model = new THREE.Group(); model.add(gun);
+      model.scale.setScalar(1.6 / Math.max(0.4, size.x, size.y, size.z));
       scene.add(model);
       cam.position.set(0, 0.25, 2.2); cam.lookAt(0, 0, 0);
     }
@@ -92,11 +95,15 @@ export function openLoadout(settings, save) {
   };
   const body = document.querySelector('#loadout .lo-body');
   body.addEventListener('click', onClick);
+  let open = true;
   $('loClose').onclick = () => {
+    open = false;
     cancelAnimationFrame(raf);
     body.removeEventListener('click', onClick);
     if (char) char.dispose();
     $('loadout').classList.add('hidden');
   };
   renderLists(); showModel(); frame();
+  // opened before the models finished loading: swap them in once they're ready
+  loadCharacterModel().then(() => { if (open) showModel(); });
 }

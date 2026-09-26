@@ -3,6 +3,8 @@ import { GeoBuilder } from './geom.js';
 import { world, isWall, cellOf } from './world.js';
 import { fabricTex } from './textures.js';
 import { SkinnedBody, modelFor } from './skinned.js';
+import { weaponMesh } from './weapons3d.js';
+import { sampleLocomotion, MOCAP_JOINTS, MOCAP_REST_NECK } from './mocap.js';
 
 // ---------------- Outfits ----------------
 // Each team has several looks; bots get a random one, the player picks in the Loadout menu.
@@ -172,13 +174,15 @@ function shadeHex(hex, k) { const c = new THREE.Color(hex).multiplyScalar(k); re
 
 // ---------------- Poses ----------------
 const HAND_POSES = {
-  rifle:  { R: [0.14, 1.3, -0.26], L: null },
+  rifle:  { R: [0.13, 1.36, -0.22], L: null },           // shouldered: stock in the shoulder pocket
   pistol: { R: [0.07, 1.38, -0.48], L: [-0.02, 1.37, -0.45] },
   knife:  { R: [0.22, 1.12, -0.34], L: [-0.24, 1.02, -0.12] },
   nade:   { R: [0.24, 1.62, 0.06], L: [-0.18, 1.2, -0.3] },
   bomb:   { R: [0.1, 0.4, -0.35], L: [-0.1, 0.4, -0.35] },
 };
 
+// mocap: the source ankle joint sits ~8.7cm above the sole, the fitter expects the foot point 5cm above it
+const MOCAP_ANKLE = 0.037;
 const _v = new THREE.Vector3(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _x = new THREE.Vector3(), _y = new THREE.Vector3(), _z = new THREE.Vector3();
 
@@ -320,8 +324,9 @@ export class Character {
     }
     this.J = Object.fromEntries(JOINTS.map((k) => [k, new THREE.Vector3()]));
     this.gun = null;
-    const pack = new GeoBuilder().box(0.26, 0.3, 0.12, 0, 0.35, 0.2, 0x3a3a2a).box(0.16, 0.08, 0.02, 0, 0.42, 0.265, 0x223322).box(0.03, 0.03, 0.01, 0.06, 0.42, 0.27, 0xff2020);
-    this.pack = new THREE.Mesh(pack.build(), mat());
+    // the bomb carrier wears the C4 on their back (sticks upright, timer facing out)
+    this.pack = weaponMesh('bomb');
+    this.pack.rotation.x = Math.PI / 2; this.pack.position.set(0, 0.34, 0.17);
     this.pack.visible = false;
     this.limbs[0].mesh.add(this.pack);
     const shadowGeo = new THREE.CircleGeometry(0.45, 14);
@@ -350,7 +355,7 @@ export class Character {
     const ph = this.phase, sw = Math.min(1, speed / 4.5);
     const bob = Math.abs(Math.sin(ph)) * 0.035 * sw;
     const air = a.onGround === false ? 1 : 0;
-    const crouch = (a.crouch || 0) * 0.35;
+    const crouch = (a.duck || 0) * 0.35;
     const cy = Math.cos(a.yaw), sy = Math.sin(a.yaw);
     // movement direction in the body frame (forward = -Z): legs swing that way, so strafing
     // and backpedalling look right instead of moonwalking
@@ -364,8 +369,24 @@ export class Character {
     this.kick = Math.max(0, (this.kick || 0) - dt * 8);
     const kick = this.kick * this.kick;
     const rl = a.reloadT > 0 && a.w?.reload ? Math.sin(Math.min(1, 1 - a.reloadT / a.w.reload) * Math.PI) : 0;
+    // body: motion-captured locomotion when available (walk/run in 8 directions, idle, jump, crouch
+    // while planting/defusing), else the procedural cycle. ox/oy/oz = how far the chest moved from
+    // its standing spot: the arms (which follow the aim) ride along with it.
+    const mc = sampleLocomotion(this.mst || (this.mst = {}), dt, { speed, dx, dz, air, crouch: kind === 'bomb' || a.crouching ? 1 : 0 });
+    let ox, oy, oz;
+    if (mc) {
+      const I = MOCAP_JOINTS();
+      for (const k of JOINTS) { const o = I[k]; J[k].set(mc[o], mc[o + 1], mc[o + 2]); }
+      const T = this.toes || (this.toes = { L: new THREE.Vector3(), R: new THREE.Vector3() });
+      T.L.set(mc[I.toL], mc[I.toL + 1] - MOCAP_ANKLE, mc[I.toL + 2]); T.R.set(mc[I.toR], mc[I.toR + 1] - MOCAP_ANKLE, mc[I.toR + 2]);
+      J.ftL.y -= MOCAP_ANKLE; J.ftR.y -= MOCAP_ANKLE;       // mocap ankle joint -> the fitter's foot point
+      const RN = MOCAP_REST_NECK();
+      ox = J.neck.x - RN[0]; oy = J.neck.y - RN[1]; oz = J.neck.z - RN[2];
+      for (const k of ['neck', 'shL', 'shR']) J[k].z += kick * 0.03;
+    } else {
     // lean into the run and slightly into strafes
     const leanZ = dz * 0.07 * sw, leanX = dx * 0.04 * sw;
+    ox = leanX; oy = bob - crouch * 0.9; oz = leanZ;
     const set = (k, x, y, z) => J[k].set(x, y, z);
     set('pelvis', 0, 0.95 + bob - crouch, 0);
     set('neck', leanX, 1.48 + bob - crouch * 0.9, 0.02 * sw + leanZ + kick * 0.03);
@@ -383,11 +404,39 @@ export class Character {
       if (ft.y < 0.05 && !air) ft.y = 0.05;
     };
     leg('L', ph); leg('R', ph + Math.PI);
-    // arms / hands follow aim pitch around the chest pivot
+    }
+    // turning in place: standing still, the feet stay planted while the upper body follows the aim;
+    // past ~50deg they step round to catch up (leading with the foot on the turning side)
+    const wrapA = (v) => { while (v > Math.PI) v -= Math.PI * 2; while (v < -Math.PI) v += Math.PI * 2; return v; };
+    if (this.feetYaw === undefined) this.feetYaw = a.yaw;
+    let liftL = 0, liftR = 0;
+    if (speed > 0.6 || air) { this.turn = null; this.feetYaw = a.yaw + wrapA(this.feetYaw - a.yaw) * Math.max(0, 1 - dt * 10); }
+    else {
+      if (!this.turn && Math.abs(wrapA(this.feetYaw - a.yaw)) > 0.85) this.turn = { t: 0, from: this.feetYaw, dur: 0.3 + Math.abs(wrapA(a.yaw - this.feetYaw)) * 0.12 };
+      const T = this.turn;
+      if (T) {
+        T.t += dt;
+        const u = Math.min(1, T.t / T.dur), e = u * u * (3 - 2 * u), turnLeft = wrapA(a.yaw - T.from) > 0;
+        this.feetYaw = T.from + wrapA(a.yaw - T.from) * e;
+        const l1 = u < 0.6 ? Math.sin(Math.PI * u / 0.6) * 0.09 : 0, l2 = u > 0.4 ? Math.sin(Math.PI * (u - 0.4) / 0.6) * 0.09 : 0;
+        if (turnLeft) { liftL = l1; liftR = l2; } else { liftR = l1; liftL = l2; }
+        if (u >= 1) this.turn = null;
+      }
+    }
+    const rel = wrapA(this.feetYaw - a.yaw);
+    if (Math.abs(rel) > 1e-3 || liftL || liftR) {
+      const cr = Math.cos(rel), sr = Math.sin(rel), px = J.pelvis.x, pz = J.pelvis.z;
+      const turnPt = (v) => { const x = v.x - px, z = v.z - pz; v.x = px + x * cr + z * sr; v.z = pz - x * sr + z * cr; };
+      for (const k of ['hipL', 'hipR', 'knL', 'knR', 'ftL', 'ftR']) turnPt(J[k]);
+      if (mc) { turnPt(this.toes.L); turnPt(this.toes.R); this.toes.L.y += liftL; this.toes.R.y += liftR; }
+      J.ftL.y += liftL; J.ftR.y += liftR; J.knL.y += liftL * 0.5; J.knR.y += liftR * 0.5;
+    }
+    // arms / hands follow aim pitch around the chest pivot (the bomb is set down at a fixed spot)
     const P = HAND_POSES[kind] || HAND_POSES.rifle;
+    if (kind === 'bomb') ox = oy = oz = 0;
     const pitch = (a.pitch || 0) + kick * 0.12 - rl * 0.35, cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const pivotY = 1.38 + bob - crouch * 0.9;
-    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0] + leanX, pivotY + y * cp - z * sp, y * sp + z * cp + leanZ + kick * 0.06); };
+    const pivotY = 1.38 + oy;
+    const rot = (v, out) => { const y = v[1] - 1.38, z = v[2]; return out.set(v[0] + ox, pivotY + y * cp - z * sp, y * sp + z * cp + oz + kick * 0.06); };
     rot(P.R, J.haR);
     if (P.L) rot(P.L, J.haL);
     else { // support hand on the foregrip
@@ -405,10 +454,10 @@ export class Character {
     const hp = (a.pitch || 0) * 0.5;
     J.head.set(J.neck.x, J.neck.y + 0.2 * Math.cos(hp), J.neck.z - 0.2 * Math.sin(hp));
     // to world
-    for (const k of JOINTS) {
-      const j = J[k], x = j.x, z = j.z;
-      j.set(a.pos.x + x * cy + z * sy, a.pos.y + j.y, a.pos.z - x * sy + z * cy);
-    }
+    const toWorld = (j) => { const x = j.x, z = j.z; j.set(a.pos.x + x * cy + z * sy, a.pos.y + j.y, a.pos.z - x * sy + z * cy); };
+    for (const k of JOINTS) toWorld(J[k]);
+    if (mc) { toWorld(this.toes.L); toWorld(this.toes.R); }
+    this.toesLive = !!mc;
     this.place();
     if (this.gun) {
       this.gun.visible = true;
@@ -439,7 +488,7 @@ export class Character {
       l.mesh.matrix.copy(_m);
       l.mesh.matrixWorldNeedsUpdate = true;
     }
-    if (this.body) this.body.fit(J);
+    if (this.body) this.body.fit(J, this.toesLive && !this.rag ? this.toes : null);
   }
 
   // ---- ragdoll ----
@@ -523,6 +572,6 @@ export class Character {
     this.scene.remove(this.group);
     for (const l of this.limbs) l.mesh.geometry?.dispose();
     this.body?.dispose();
-    this.pack.geometry.dispose();
+    this.pack.removeFromParent();          // shared weapon model: nothing to dispose
   }
 }

@@ -7,6 +7,7 @@ export const CONTROLS = {
   btnFire:   { label: 'Fire', ax: 'r', ay: 'b', dx: 1.35, dy: 2.0, size: 1.5 },
   btnFireL:  { label: 'Left fire', ax: 'l', ay: 'b', dx: 0.95, dy: 2.9, size: 1.0 },
   btnJump:   { label: 'Jump', ax: 'r', ay: 'b', dx: 3.1, dy: 0.8, size: 1.0 },
+  btnCrouch: { label: 'Crouch', ax: 'r', ay: 'b', dx: 4.35, dy: 0.8, size: 1.0 },
   btnReload: { label: 'Reload', ax: 'r', ay: 'b', dx: 3.15, dy: 2.05, size: 1.0 },
   btnScope:  { label: 'Scope / lob', ax: 'r', ay: 'b', dx: 1.3, dy: 3.85, size: 1.05 },
   btnUse:    { label: 'Plant / defuse', ax: 'r', ay: 'b', dx: 4.4, dy: 3.3, size: 1.25 },
