@@ -2,6 +2,8 @@ import * as THREE from '../lib/three.module.min.js';
 import { GLTFLoader } from '../lib/addons/GLTFLoader.js';
 import { clone as cloneSkinned } from '../lib/addons/SkeletonUtils.js';
 import { loadMocap } from './mocap.js';
+import { loadWeaponModels } from './weapons3d.js';
+import { loadArms } from './fparms.js';
 
 // Skinned character driven by the game's procedural skeleton.
 // The game (pose + ragdoll) computes 15 joint positions; this fits a Mixamo-rigged
@@ -28,7 +30,7 @@ let loading = null;
 export function loadCharacterModel() {
   if (!loading) {
     const loader = new GLTFLoader();
-    loading = Promise.all([loadMocap(), ...Object.entries(MODELS).map(([id, url]) => loader.loadAsync(url)
+    loading = Promise.all([loadMocap(), loadWeaponModels(), loadArms(), ...Object.entries(MODELS).map(([id, url]) => loader.loadAsync(url)
       .then((g) => { protos[id] = prepare(g); })
       .catch((e) => console.warn(`Character model ${id} unavailable`, e)))])
       .then(() => protos);

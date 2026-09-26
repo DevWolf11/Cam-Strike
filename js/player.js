@@ -1,7 +1,8 @@
 import * as THREE from '../lib/three.module.min.js';
 import { WEAPONS } from './config.js';
 import { input, consume } from './input.js';
-import { weaponMesh, MUZZLE, setViewmodelEnv } from './weapons3d.js';
+import { weaponMesh, MUZZLE, setViewmodelEnv, gunMeta } from './weapons3d.js';
+import { FPArms, armsReady, handSpec } from './fparms.js';
 import { armMesh } from './hands.js';
 import { fabricTex } from './textures.js';
 import * as W from './world.js';
@@ -15,12 +16,15 @@ const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 // Where the gun's grip sits in view space, per weapon kind
 export const VM = {
   rifle:  { x: 0.19, y: -0.15, z: -0.34, s: 1, rx: 0.06, ry: 0.12, rz: 0.2 },
-  pistol: { x: 0.13, y: -0.13, z: -0.3, s: 1, rx: 0.05, ry: 0.08, rz: 0.08 },
+  pistol: { x: 0.11, y: -0.115, z: -0.3, s: 1, rx: 0.05, ry: 0.1, rz: 0.06 },
   knife:  { x: 0.14, y: -0.13, z: -0.27, s: 1, rx: 0.35, ry: 0.35, rz: -0.35 },
   nade:   { x: 0.15, y: -0.13, z: -0.3, s: 0.9, rx: 0.1, ry: 0.3, rz: 0 },
   sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
 
+// where the first-person arms' shoulders sit in view space: low and a little inward
+const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
+const _hv = new THREE.Vector3(), _hw = new THREE.Vector3(), _hf = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Vector3();
 export class PlayerController {
   constructor(game, camera, settings) {
     this.game = game; this.camera = camera; this.settings = settings;
@@ -49,6 +53,8 @@ export class PlayerController {
       watch: new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.3, metalness: 0.8, vertexColors: true }),
     };
     this.envBuilt = false;
+    // rigged first-person arms (fall back to the simple built-in hands if they didn't load)
+    this.arms = armsReady() ? new FPArms(this.vmScene, o.sleeve, { anchor: ARM_ANCHOR }) : null;
     game.on((type, d) => {
       if (type === 'shot' && d.agent === game.player && !d.confirm) this.kick = 1;
       if (type === 'roundStart') { this.setSpectate(null); this.deathT = 0; }
@@ -68,9 +74,10 @@ export class PlayerController {
     gun.position.set(P.x, P.y, P.z);
     gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
-    // hands and sleeves ride on the gun so they follow every animation
     const M = this.armMats, gunId = a.weapon;
-    if (kind === 'knife' || kind === 'nade') {
+    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(gunId), FORE[gunId] || FORE.rifle);
+    // hands and sleeves ride on the gun so they follow every animation
+    else if (kind === 'knife' || kind === 'nade') {
       gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
     } else {
       const R = armMesh('grip', M, { wrist: [0.032, -0.046, 0.05], dir: [0.3, -0.42, 1] });
@@ -92,6 +99,21 @@ export class PlayerController {
     gun.add(this.muzzle);
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
     this.switchT = 0.35;
+  }
+
+  // Put the rigged arms' hands on the gun (targets are in the gun's own space, see handSpec)
+  poseArms(visible) {
+    const A = this.arms, H = this.handSpec, gun = this.vmGun;
+    A.visible = visible;
+    if (!visible || !H) return;
+    this.vm.updateMatrixWorld(true);
+    const P = (v) => gun.localToWorld(_hv.set(v[0], v[1], v[2])).clone();
+    const D = (v) => _hv.set(v[0], v[1], v[2]).transformDirection(gun.matrixWorld).clone();
+    for (const s of ['R', 'L']) {
+      const h = H[s];
+      if (h.view) A.hand(s, _hw.set(...h.view.wrist), _hf.set(...h.view.fwd), _hp.set(...h.view.palm), _hq.set(...h.view.pole), h.curl);
+      else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl); }
+    }
   }
 
   setSpectate(a) {
@@ -267,6 +289,7 @@ export class PlayerController {
     vm.position.set(bx + posX, by + posY, posZ);
     vm.rotation.set(rotX, rotY, rotZ);
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
+    if (this.arms) this.poseArms(vm.visible);
     this.vmCamera.aspect = this.camera.aspect;
     this.vmCamera.updateProjectionMatrix();
     // viewmodel lighting follows the map: dim it when you stand in shade or indoors

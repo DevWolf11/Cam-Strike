@@ -78,9 +78,15 @@ On every setting the game watches its frame rate. If your device can't keep up (
 
 A full-strength throw carries a grenade about 35m; the underhand lob is for short, precise tosses. Also available: Kevlar + Helmet ($1000) and a Defuse Kit ($400, CT only). Headshots do 4× damage. You're most accurate standing still, and the crosshair shows your current spread.
 
+### Weapon models and first-person arms
+
+Every gun, the three grenades and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18 and a C4 bundle). Each has two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knives and the molotov are still built in code.
+
+In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist): the right hand wraps the grip with the index finger on the trigger, and the left hand cradles the handguard with its thumb along the side. Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. Pistols are held one-handed. If the models can't load, the game falls back to its built-in guns and hands.
+
 ### Skins and agents
 
-In **Loadout & skins** you can give every gun and the knife one of 12 skins, from Factory New up to Covert (Desert Storm, Tiger Tooth, Crimson Web, Neon Rider, Dragon Scale, Nebula, Gilded and more). You can also pick a knife style (Classic, Karambit, Butterfly, Bayonet) and an agent outfit for each team (T: Phoenix, Elite Crew, Separatist, Guerrilla; CT: SWAT, SAS, GIGN, SEAL). A live 3D preview shows the result. Bots roll random outfits and skins.
+In **Loadout & skins** you can give every gun and the knife one of 12 skins (the skin's pattern is painted over the model's own texture, so the metal parts keep their shading and gold skins turn metallic), from Factory New up to Covert (Desert Storm, Tiger Tooth, Crimson Web, Neon Rider, Dragon Scale, Nebula, Gilded and more). You can also pick a knife style (Classic, Karambit, Butterfly, Bayonet) and an agent outfit for each team (T: Phoenix, Elite Crew, Separatist, Guerrilla; CT: SWAT, SAS, GIGN, SEAL). A live 3D preview shows the result. Bots roll random outfits and skins.
 
 ### Friendly fire and teamkills
 
@@ -179,7 +185,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
 | `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
 | `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
-| `js/weapons3d.js` | Gun, knife and grenade models, weapon skins |
+| `js/weapons3d.js` | Loads the gun, grenade and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/fparms.js` | Rigged first-person arms: IK hand placement on each gun, finger grips |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
 | `js/hud.js`, `js/layout.js`, `js/loadout.js` | HUD and buy menu, adaptive and editable touch layout, loadout screen |
@@ -197,3 +204,16 @@ three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons
 - SEAL: ["Soldier Full Tactical Gear (LowPolyGameReady)"](https://skfb.ly/pMDAV) by DanlyVostok.
 
 The Guerrilla model (`militia.glb`) is free to use without attribution.
+
+Weapon and first-person arm models, converted and optimised for the game (`assets/weapons/`), licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) unless noted:
+
+- Viper SMG: ["MP5SD"](https://skfb.ly/oyUN9) by ecler
+- Breacher 12G: ["Remington 870 Shotgun"](https://skfb.ly/o9MZx) by Milin Andrei
+- AR-47 Rifle: ["AK 47 PBR"](https://skfb.ly/6YAOL) by ErhanMatur
+- Longshot .338: ["AWP"](https://skfb.ly/6Z8yp) by Rifeor
+- P-9 Pistol: ["Glock 17 Pistol | Low Poly Game Ready 3D Model"](https://sketchfab.com/3d-models/glock-17-pistol-low-poly-game-ready-3d-model-6ca031e39a274fe39416b1e21bedd76c) by JaNaZa_ZaIb, under the Sketchfab Standard license
+- HE grenade: ["M67"](https://skfb.ly/oDYJJ) by Firewarden
+- Flashbang: ["M84 Stun Grenade 'Flashbang'"](https://skfb.ly/6RKVO) by Vanillatography
+- Smoke grenade: ["M18 Smoke Grenade"](https://skfb.ly/6Soqp) by Vanillatography
+- C4: ["Simple C4- Bomb"](https://skfb.ly/6zLxq) by Blender3D
+- First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen

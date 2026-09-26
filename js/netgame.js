@@ -5,10 +5,9 @@ import * as W from './world.js';
 import { surfKind } from './effects.js';
 import { setRagdollPushers, ragdollBlast } from './character.js';
 import * as SFX from './audio.js';
-import { grenadeGeometry } from './weapons3d.js';
+import { grenadeObject } from './weapons3d.js';
 
 const INTERP = 0.1;                 // render remote players this far behind the host
-const plain = new THREE.MeshLambertMaterial({ vertexColors: true });
 const _d = new THREE.Vector3(), _o = new THREE.Vector3(), _v = new THREE.Vector3();
 const lerpAngle = (a, b, k) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * k; };
 
@@ -213,7 +212,7 @@ export class ClientGame extends Game {
     for (const [id, type, x, y, z] of s.n) {
       seen.add(id);
       let m = this.fly.get(id);
-      if (!m) { m = new THREE.Mesh(grenadeGeometry(type), plain); this.scene.add(m); this.fly.set(id, m); }
+      if (!m) { m = grenadeObject(type); this.scene.add(m); this.fly.set(id, m); }
       m.position.set(x, y, z); m.rotation.x += 0.4;
     }
     for (const [id, m] of this.fly) if (!seen.has(id)) { this.scene.remove(m); this.fly.delete(id); }

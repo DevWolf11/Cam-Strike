@@ -98,8 +98,8 @@ export class Game {
     this.round = 0; this.phase = 'freeze'; this.timer = 0; this.matchWinner = null;
 
     this.bombMesh = weaponMesh('bomb');
-    this.bombLed = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
-    this.bombLed.position.set(0.08, 0.07, 0.04); this.bombMesh.add(this.bombLed);
+    this.bombLed = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
+    this.bombLed.position.set(0.03, 0.062, -0.035); this.bombMesh.add(this.bombLed);
     this.bombMesh.visible = false; scene.add(this.bombMesh);
     this.bomb = {};
     this.startRound();

@@ -3,6 +3,7 @@ import { GeoBuilder } from './geom.js';
 import { world, isWall, cellOf } from './world.js';
 import { fabricTex } from './textures.js';
 import { SkinnedBody, modelFor } from './skinned.js';
+import { weaponMesh } from './weapons3d.js';
 import { sampleLocomotion, MOCAP_JOINTS, MOCAP_REST_NECK } from './mocap.js';
 
 // ---------------- Outfits ----------------
@@ -323,8 +324,9 @@ export class Character {
     }
     this.J = Object.fromEntries(JOINTS.map((k) => [k, new THREE.Vector3()]));
     this.gun = null;
-    const pack = new GeoBuilder().box(0.26, 0.3, 0.12, 0, 0.35, 0.2, 0x3a3a2a).box(0.16, 0.08, 0.02, 0, 0.42, 0.265, 0x223322).box(0.03, 0.03, 0.01, 0.06, 0.42, 0.27, 0xff2020);
-    this.pack = new THREE.Mesh(pack.build(), mat());
+    // the bomb carrier wears the C4 on their back (sticks upright, timer facing out)
+    this.pack = weaponMesh('bomb');
+    this.pack.rotation.x = Math.PI / 2; this.pack.position.set(0, 0.34, 0.17);
     this.pack.visible = false;
     this.limbs[0].mesh.add(this.pack);
     const shadowGeo = new THREE.CircleGeometry(0.45, 14);
@@ -570,6 +572,6 @@ export class Character {
     this.scene.remove(this.group);
     for (const l of this.limbs) l.mesh.geometry?.dispose();
     this.body?.dispose();
-    this.pack.geometry.dispose();
+    this.pack.removeFromParent();          // shared weapon model: nothing to dispose
   }
 }

@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { GeoBuilder } from './geom.js';
 import { makeCanvasTexture } from './textures.js';
+import { GLTFLoader } from '../lib/addons/GLTFLoader.js';
 
 // ---------------- Skins ----------------
 export const SKINS = [
@@ -422,7 +423,7 @@ function vmMat(kind, skin) {
 }
 export function setViewmodelEnv(tex) {
   vmEnv = tex;
-  for (const m of Object.values(vmMats)) { m.envMap = tex; m.needsUpdate = true; }
+  for (const m of [...Object.values(vmMats), ...modelVmMats]) { m.envMap = tex; m.needsUpdate = true; }
 }
 
 // ---------------- Meshes ----------------
@@ -439,6 +440,7 @@ function cachedParts(key, fn) {
 const NADES = ['he', 'flash', 'smoke', 'molotov', 'bomb'];
 // Returns an Object3D for a weapon (mode 'world' for third person/preview, 'vm' for first person)
 export function weaponMesh(id, loadout = {}, mode = 'world') {
+  if (id !== 'knife' && hasModel(id)) return modelMesh(id, NADES.includes(id) ? 'factory' : loadout.skins?.[id] || 'factory', mode);
   let geos, skin = 'factory';
   if (id === 'knife') {
     const type = loadout.knifeType || 'classic'; skin = loadout.knifeSkin || 'factory';
@@ -460,6 +462,108 @@ export function weaponMesh(id, loadout = {}, mode = 'world') {
   }
   if (geos.rest) g.add(new THREE.Mesh(geos.rest, worldMat('metal', skin)));
   return g;
+}
+
+// ---------------- Real models ----------------
+// Converted from Sketchfab models (credits in the README): one mesh per material, metres,
+// origin = right-hand grip, barrel -Z, up +Y (grenades/C4: origin at the centre).
+// Each has a detailed first-person version (vm) and a low-poly one for third person (w).
+const MODEL_IDS = ['rifle', 'smg', 'shotgun', 'sniper', 'pistol', 'he', 'flash', 'smoke', 'bomb'];
+// per gun, relative to the grip: muzzle [up, forward], left hand on the handguard [forward, height],
+// and the grip's slant (the direction the fingers wrap down along) [back, down]
+const MODEL_META = {
+  rifle:   { muzzle: [0.0555, 0.602], fore: [0.322, 0.025], grip: [0.028, -0.084] },
+  smg:     { muzzle: [0.090, 0.572], fore: [0.302, 0.043], grip: [0.064, -0.1] },
+  shotgun: { muzzle: [0.066, 0.686], fore: [0.406, -0.014], grip: [0.068, -0.056] },
+  sniper:  { muzzle: [0.061, 0.90], fore: [0.34, -0.009], grip: [0.028, -0.088] },
+  pistol:  { muzzle: [0.0515, 0.157], fore: null, grip: [0.031, -0.077] },
+};
+const models = {};
+let modelsLoading = null;
+export function loadWeaponModels() {
+  if (!modelsLoading) {
+    const loader = new GLTFLoader();
+    const one = (id, v) => loader.loadAsync(`assets/weapons/${id}${v === 'w' ? '_w' : ''}.glb`)
+      .then((g) => { (models[id] || (models[id] = {}))[v] = prepModel(g.scene, v); })
+      .catch((e) => console.warn(`Weapon model ${id}/${v} unavailable`, e));
+    modelsLoading = Promise.all(MODEL_IDS.flatMap((id) => [one(id, 'vm'), one(id, 'w')])).then(() => {
+      for (const id in MODEL_META) if (hasModel(id)) MUZZLE[id] = MODEL_META[id].muzzle;
+    });
+  }
+  return modelsLoading;
+}
+const hasModel = (id) => !!(models[id] && models[id].vm && models[id].w);
+// grip/handguard geometry of the model in use (null for the procedural guns)
+export const gunMeta = (id) => (hasModel(id) ? MODEL_META[id] || null : null);
+
+function prepModel(root, v) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = false; o.receiveShadow = false;
+    if (v === 'w') {
+      // third person: cheap diffuse shading, it's a few pixels tall
+      const m = o.material;
+      o.material = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, emissive: m.emissive, emissiveMap: m.emissiveMap });
+    } else {
+      o.material.envMap = vmEnv; o.material.envMapIntensity = 0.9;
+      modelVmMats.add(o.material);
+    }
+  });
+  return root;
+}
+const modelVmMats = new Set();
+
+// Skins on real models: the pattern is projected from three sides in the model's own space
+// (no UVs needed) and multiplied with the model's texture, so wear, edges and shading show through.
+// Bare metal (high metalness in the model's own maps) keeps most of its finish.
+const skinnedMats = new Map();
+function skinnedModelMaterial(base, skin, mode) {
+  const key = base.uuid + skin;
+  if (skinnedMats.has(key)) return skinnedMats.get(key);
+  const m = base.clone();
+  const tex = skinTex(skin); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const gold = skin === 'gold';
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uSkin = { value: tex };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSkPos; varying vec3 vSkNrm;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSkPos = position; vSkNrm = normal;');
+    const blend = `{
+        vec3 w3 = pow(abs(normalize(vSkNrm)), vec3(4.0)); w3 /= (w3.x + w3.y + w3.z);
+        vec3 q = vSkPos * 7.0;
+        vec3 pat = texture2D(uSkin, q.zy).rgb * w3.x + texture2D(uSkin, q.xz).rgb * w3.y + texture2D(uSkin, q.xy).rgb * w3.z;
+        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        float amt = SKIN_AMOUNT;
+        diffuseColor.rgb = mix(diffuseColor.rgb, pat * (0.3 + lum * 1.8), amt);
+        SKIN_EXTRA
+      }`;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uSkin; varying vec3 vSkPos; varying vec3 vSkNrm;');
+    if (mode === 'vm') {
+      // after the metalness map: paint goes on the body, bare steel keeps most of its look
+      sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n' + blend
+        .replace('SKIN_AMOUNT', '1.0 - smoothstep(0.55, 0.95, metalnessFactor) * 0.7')
+        .replace('SKIN_EXTRA', gold ? 'metalnessFactor = mix(metalnessFactor, 1.0, amt); roughnessFactor = mix(roughnessFactor, 0.25, amt);' : 'metalnessFactor = mix(metalnessFactor, 0.15, amt); roughnessFactor = mix(roughnessFactor, 0.5, amt);'));
+    } else {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n' + blend.replace('SKIN_AMOUNT', '0.9').replace('SKIN_EXTRA', ''));
+    }
+  };
+  m.customProgramCacheKey = () => 'skin-' + mode + (gold ? 'g' : '');
+  if (mode === 'vm') modelVmMats.add(m);
+  skinnedMats.set(key, m);
+  return m;
+}
+
+function modelMesh(id, skin, mode) {
+  const g = models[id][mode === 'vm' ? 'vm' : 'w'].clone();
+  if (skin && skin !== 'factory') g.traverse((o) => { if (o.isMesh) o.material = skinnedModelMaterial(o.material, skin, mode); });
+  return g;
+}
+
+// A thrown grenade: the low-poly model, or the procedural one
+const plainNade = new THREE.MeshLambertMaterial({ vertexColors: true });
+export function grenadeObject(id) {
+  if (hasModel(id)) return modelMesh(id, 'factory', 'w');
+  return new THREE.Mesh(grenadeGeometry(id), plainNade);
 }
 
 // Thrown grenades in flight: one merged geometry, vertex-colored
