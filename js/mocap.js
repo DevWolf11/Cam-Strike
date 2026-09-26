@@ -6,6 +6,7 @@
 
 const URL = 'assets/anims/locomotion.json';
 const STANCE_UNDO = 0.8;          // how much of the clips' bladed rifle stance to turn back toward the aim
+const RUN_STRIDE_STRETCH = 0.6;   // run cadence at full speed: about 3 steps/s instead of 5
 let DATA = null, loading = null;
 
 export function loadMocap() {
@@ -84,7 +85,10 @@ export function sampleLocomotion(st, dt, move) {
   // standing: walk <-> run by speed; the cycle length blends too so the feet don't slide
   const W = clips['walk forward'], R = clips['run forward'], C = clips['cwalk forward'];
   const g = Math.min(1, Math.max(0, (move.speed - W.speed) / (R.speed - W.speed)));
-  const stride = W.stride + (R.stride - W.stride) * g;
+  // The run clip is a quick jog (2.3 m per cycle); played fast enough for the game's 5.9 m/s it would
+  // step 5 times a second, which reads as frantic. Running uses a longer effective stride instead:
+  // slower, more natural steps at the cost of a little foot slide.
+  const stride = (W.stride + (R.stride - W.stride) * g) * (1 + RUN_STRIDE_STRETCH * g);
   st.ph = ((st.ph ?? Math.random()) + dt * move.speed / stride) % 1;
   st.cph = ((st.cph ?? Math.random()) + dt * move.speed / C.stride) % 1;
   st.idle = ((st.idle ?? Math.random()) + dt / clips.idle.dur) % 1;

@@ -1,9 +1,11 @@
 import { WEAPONS, WEAPON_ORDER, ECON, GRENADES, NADE_ORDER, MAX_NADES } from './config.js';
 import { input, consume, releasePointer } from './input.js';
 import { renderMinimap } from './mapmesh.js';
-import { calloutAt } from './world.js';
+import * as THREE from '../lib/three.module.min.js';
+import { calloutAt, raycast } from './world.js';
 import * as SFX from './audio.js';
 
+const _tv = new THREE.Vector3();
 const $ = (id) => document.getElementById(id);
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const TEAM_NAME = { T: 'Terrorists', CT: 'Counter-Terrorists' };
@@ -17,7 +19,7 @@ export class HUD {
     this.el = {};
     for (const id of ['hud', 'minimap', 'money', 'callout', 'hudLeftCol', 'scoreT', 'scoreCT', 'aliveT', 'aliveCT', 'timer', 'bombTimer', 'punish', 'killfeed', 'center-msg', 'sub-msg', 'hint', 'progress',
       'crosshair', 'hitmarker', 'hp', 'armor', 'bombIcon', 'kitIcon', 'ammo', 'mag', 'reserve', 'wname', 'weapons', 'spectating', 'dmg-vignette', 'dmg-dir', 'scope', 'flashbang',
-      'btnUse', 'btnScope', 'btnBuy', 'buy', 'buyGuns', 'buyNades', 'buyGear', 'buyMoney', 'scoreboard', 'sbT', 'sbCT', 'sbRound']) this.el[id] = $(id);
+      'tags', 'btnUse', 'btnScope', 'btnBuy', 'buy', 'buyGuns', 'buyNades', 'buyGear', 'buyMoney', 'scoreboard', 'sbT', 'sbCT', 'sbRound']) this.el[id] = $(id);
     this.mm = this.el.minimap.getContext('2d');
     this.mmBase = renderMinimap(game.mapDef, 320);
     this.mmK = 320 / Math.max(game.mapDef.w, game.mapDef.h);
@@ -265,6 +267,42 @@ export class HUD {
     if (this.msgT <= 0 && el['center-msg'].textContent) el['center-msg'].textContent = '';
     if (this.subT <= 0 && el['sub-msg'].textContent) el['sub-msg'].textContent = '';
     if (this.frame % 2 === 0) this.drawMinimap();
+    this.updateTags();
+  }
+
+  // Teammate name tags: the name and a team-coloured marker above each living teammate's head, so a
+  // friend coming round a corner is never mistaken for an enemy. Dimmed (not hidden) behind walls.
+  updateTags() {
+    const g = this.g, p = g.player, cam = this.ctrl.camera, viewer = this.ctrl.spec || p;
+    const box = this.el.tags, W = box.clientWidth, H = box.clientHeight;
+    const tags = this.tags || (this.tags = new Map());
+    for (const [a, t] of tags) if (!g.agents.includes(a)) { t.el.remove(); tags.delete(a); }
+    for (const a of g.agents) {
+      let t = tags.get(a);
+      const show = a !== viewer && a !== p && a.alive && a.team === p.team && W > 0;
+      if (show) _tv.set(a.pos.x, a.eyeY + 0.42, a.pos.z).project(cam);
+      if (!show || _tv.z > 1 || Math.abs(_tv.x) > 1.1 || Math.abs(_tv.y) > 1.1) {
+        if (t && t.on) { t.el.style.display = 'none'; t.on = false; }
+        continue;
+      }
+      if (!t) {
+        const el = document.createElement('div');
+        el.innerHTML = '<b></b><i></i>';
+        box.appendChild(el);
+        t = { el, name: '', team: '', on: true, seen: true, k: tags.size };
+        tags.set(a, t);
+      }
+      if (!t.on) { t.el.style.display = ''; t.on = true; }
+      if (t.name !== a.name) { t.name = a.name; t.el.firstChild.textContent = a.name; }
+      if (t.team !== a.team) { t.team = a.team; t.el.className = 'ntag ' + a.team; }
+      const dx = a.pos.x - cam.position.x, dy = a.eyeY + 0.42 - cam.position.y, dz = a.pos.z - cam.position.z, d = Math.hypot(dx, dy, dz);
+      // line of sight, re-checked a few times a second (staggered across teammates)
+      if ((this.frame + t.k) % 8 === 0) t.seen = raycast(cam.position.x, cam.position.y, cam.position.z, dx / d, dy / d, dz / d, d).dist >= d - 0.3;
+      const sc = Math.max(0.8, Math.min(1, 1.1 - d / 60));
+      const x = (_tv.x * 0.5 + 0.5) * W, y = (-_tv.y * 0.5 + 0.5) * H;
+      t.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) scale(${sc.toFixed(2)}) translate(-50%,-100%)`;
+      t.el.style.opacity = t.seen ? '1' : '0.55';
+    }
   }
 
   drawMinimap() {

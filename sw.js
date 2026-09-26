@@ -1,5 +1,5 @@
 // Offline cache: the whole game is static files, so cache-first works well.
-const CACHE = 'camstrike-v10';
+const CACHE = 'camstrike-v11';
 const FILES = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './lib/three.module.min.js', './lib/peerjs.min.js',

@@ -17,7 +17,7 @@ const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 export const VM = {
   rifle:  { x: 0.19, y: -0.15, z: -0.34, s: 1, rx: 0.06, ry: 0.12, rz: 0.2 },
   pistol: { x: 0.11, y: -0.115, z: -0.3, s: 1, rx: 0.05, ry: 0.1, rz: 0.06 },
-  knife:  { x: 0.14, y: -0.13, z: -0.27, s: 1, rx: 0.35, ry: 0.35, rz: -0.35 },
+  knife:  { x: 0.14, y: -0.12, z: -0.3, s: 1, rx: 0.7, ry: 0.35, rz: -0.25 },
   nade:   { x: 0.15, y: -0.13, z: -0.3, s: 0.9, rx: 0.1, ry: 0.3, rz: 0 },
   sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
