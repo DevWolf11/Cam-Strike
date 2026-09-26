@@ -64,6 +64,11 @@ export class Grenades {
       const onGround = Math.abs(n.vel.y) < 0.4 && pointBlocked(n.pos.x, n.pos.y - 0.08, n.pos.z);
       if (onGround) { n.spin.multiplyScalar(Math.max(0, 1 - dt * 6)); n.vel.x *= Math.max(0, 1 - dt * 2.5); n.vel.z *= Math.max(0, 1 - dt * 2.5); }
       n.mesh.rotation.x += dt * n.spin.x; n.mesh.rotation.y += dt * n.spin.y; n.mesh.rotation.z += dt * n.spin.z;
+      // a molotov's rag burns in flight: small flames shed from the neck trail behind it
+      if (n.type === 'molotov' && (n.fl = (n.fl || 0) - dt) <= 0) {
+        n.fl = 0.03; n.mesh.updateMatrixWorld(); n.mesh.localToWorld(_lp.set(0, 0.155, 0));
+        this.g.effects.flame({ x: _lp.x, y: _lp.y, z: _lp.z, vy: 0.4, size: 0.13 + Math.random() * 0.06, life: 0.2 + Math.random() * 0.1, fadeIn: 0.03, fadeOut: 0.12, alpha: 0.85 });
+      }
       if (n.t >= def.fuse && !this.visualOnly) { this.detonate(n); this.scene.remove(n.mesh); this.flying.splice(i, 1); }
     }
 

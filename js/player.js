@@ -6,6 +6,7 @@ import { FPArms, armsReady, handSpec } from './fparms.js';
 import { armMesh } from './hands.js';
 import { sampleKnife, knifeClipLength } from './knifeanim.js';
 import { fabricTex } from './textures.js';
+import { flameAtlas } from './particles.js';
 import * as W from './world.js';
 import * as SFX from './audio.js';
 import { reloadSounds } from './game.js';
@@ -22,6 +23,7 @@ export const VM = {
   pistol: { x: 0.1, y: -0.11, z: -0.33, s: 1, rx: 0.05, ry: 0.06, rz: 0.04 },
   knife:  { x: 0.15, y: -0.14, z: -0.3, s: 1, rx: 0.45, ry: 0.45, rz: -0.35 },
   nade:   { x: 0.14, y: -0.085, z: -0.3, s: 0.9, rx: 0.3, ry: 0.25, rz: 0 },
+  molotov: { x: 0.15, y: -0.115, z: -0.31, s: 0.9, rx: 0.25, ry: 0.35, rz: -0.12 },   // a tall bottle: held lower, leaning out
   sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
 
@@ -106,7 +108,7 @@ export class PlayerController {
     gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
     const M = this.armMats, gunId = a.weapon;
-    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(gunId), { min: box.min.toArray(), max: box.max.toArray() });
+    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(id), { min: box.min.toArray(), max: box.max.toArray() });
     // hands and sleeves ride on the gun so they follow every animation
     else if (kind === 'knife' || kind === 'nade') {
       gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
@@ -128,6 +130,16 @@ export class PlayerController {
     const mz = MUZZLE[gunId];
     this.muzzle.position.set(0, mz ? mz[0] : 0.06, mz ? -mz[1] : -(WEAPONS[gunId]?.len || 0.3) * 1.05);
     gun.add(this.muzzle);
+    // a molotov's rag burns in your hand: a flame flipbook standing on the bottle's neck
+    this.vmFlame = null;
+    if (id === 'molotov') {
+      this.vmFlame = [0, 7].map((ph, i) => {
+        const tex = flameAtlas().clone(); tex.repeat.set(0.25, 0.25);
+        const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true, toneMapped: false }));
+        f.center.set(0.5, 0.04); f.position.set(i ? 0.006 : -0.004, 0.156, i ? -0.018 : -0.008); f.renderOrder = 2 + i; f.userData = { ph, w: i ? 0.034 : 0.05 };
+        gun.add(f); return f;
+      });
+    }
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
     if (kind === 'knife') this.kAnim = { clip: 'draw', t: 0, blendT: 1, fromP: new THREE.Vector3(), fromQ: new THREE.Quaternion() };
     this.switchT = 0.35;
@@ -356,6 +368,11 @@ export class PlayerController {
     }
     if (this.vmKind === 'knife') this.animKnife(a, dt);
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
+    if (this.vmFlame) for (const F of this.vmFlame) {
+      const fr = (Math.floor(performance.now() / 1000 * 16) + F.userData.ph) % 16, k = 0.88 + Math.random() * 0.24, w = F.userData.w;
+      F.material.map.offset.set((fr % 4) / 4, (3 - Math.floor(fr / 4)) / 4);
+      F.scale.set(w * k, w * 2 * k, 1);
+    }
     if (this.arms) this.poseArms(vm.visible);
     this.vmCamera.aspect = this.camera.aspect;
     this.vmCamera.updateProjectionMatrix();

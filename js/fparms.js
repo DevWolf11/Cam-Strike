@@ -262,7 +262,7 @@ const GRIPS = {
 export function handSpec(id, kind, meta, box) {
   const G = GRIPS[id];
   // the grip's slant (pointing down the grip), and the across-grip direction toward the back
-  const g = nrm(meta ? [0, meta.grip[1], meta.grip[0]] : kind === 'pistol' ? [0, -0.92, 0.38] : [0, -1, 0.1]);
+  const g = nrm(meta?.grip ? [0, meta.grip[1], meta.grip[0]] : kind === 'pistol' ? [0, -0.92, 0.38] : [0, -1, 0.1]);
   const e2 = cross(g, [1, 0, 0]);
   const f0 = nrm(mul(e2, -1));                                    // forward, square to the grip
   let R, L;
@@ -274,8 +274,8 @@ export function handSpec(id, kind, meta, box) {
       wrist: add(C, [0.045, 0, 0], mul(fwd, -0.06)), fwd, palm, pole: [0.3, -0.35, 0.25], fixed: { thumb: [0.7, 0.5, 0.3] } };   // thumb curled over the fingers by the guard
   } else if (kind === 'nade') {
     // a grenade sits upright in the fist, its body above the thumb
-    const bx = box || { min: [-0.03, -0.05, -0.03], max: [0.03, 0.06, 0.03] };
-    const C = mul(add(bx.min, bx.max), 0.5), rad = Math.max(bx.max[0] - bx.min[0], bx.max[2] - bx.min[2]) / 2, hh = (bx.max[1] - bx.min[1]) / 2;
+    const bx = box || { min: [-0.03, -0.05, -0.03], max: [0.03, 0.06, 0.03] }, H = meta?.hold;   // (a bottle: its body, not the rag)
+    const C = H ? H.c : mul(add(bx.min, bx.max), 0.5), rad = H ? H.r : Math.max(bx.max[0] - bx.min[0], bx.max[2] - bx.min[2]) / 2, hh = H ? H.hh : (bx.max[1] - bx.min[1]) / 2;
     const fwd = nrm([-0.3, -0.25, -0.92]), palm = [-1, 0, 0];
     R = { vol: [{ c: C, d: [0, 1, 0], e1: [1, 0, 0], e2: [0, 0, 1], a: rad, b: rad, h: hh }],
       wrist: add(C, [rad + 0.04, -hh * 0.35, 0], mul(fwd, -0.06)), fwd, palm, pole: [0.3, -0.35, 0.25], fixed: { thumb: [0.6, 0.5, 0.3] } };   // thumb across the front, by the spoon

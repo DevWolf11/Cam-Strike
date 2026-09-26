@@ -471,6 +471,7 @@ export function weaponMesh(id, loadout = {}, mode = 'world') {
 // blade -Z, edge -Y).
 // Each has a detailed first-person version (vm) and a low-poly one for third person (w).
 const MODEL_IDS = ['rifle', 'smg', 'shotgun', 'sniper', 'pistol', 'he', 'flash', 'smoke', 'bomb'];
+const SINGLE_IDS = ['knife', 'molotov'];
 // per gun, relative to the grip: muzzle [up, forward], left hand on the handguard [forward, height],
 // and the grip's slant (the direction the fingers wrap down along) [back, down]
 const MODEL_META = {
@@ -479,6 +480,8 @@ const MODEL_META = {
   shotgun: { muzzle: [0.066, 0.686], fore: [0.406, -0.014], grip: [0.068, -0.056] },
   sniper:  { muzzle: [0.061, 0.90], fore: [0.34, -0.009], grip: [0.028, -0.088] },
   pistol:  { muzzle: [0.0515, 0.157], fore: null, grip: [0.031, -0.077] },
+  // where the hand closes around a grenade that isn't a simple cylinder: centre, radius, half-height
+  molotov: { hold: { c: [0, 0.005, 0], r: 0.031, hh: 0.07 } },
 };
 const models = {};
 let modelsLoading = null;
@@ -488,15 +491,15 @@ export function loadWeaponModels() {
     const one = (id, v) => loader.loadAsync(`assets/weapons/${id}${v === 'w' ? '_w' : ''}.glb`)
       .then((g) => { (models[id] || (models[id] = {}))[v] = prepModel(g.scene, v); })
       .catch((e) => console.warn(`Weapon model ${id}/${v} unavailable`, e));
-    // the knife is small enough for one file: the same mesh in first and third person
-    const knife = loader.loadAsync('assets/weapons/knife.glb')
+    // the knife and molotov are small enough for one file: the same mesh in first and third person
+    const single = (id) => loader.loadAsync(`assets/weapons/${id}.glb`)
       .then((g) => {
-        models.knife = { vm: prepModel(g.scene, 'vm') }; models.knife.w = prepModel(g.scene.clone(), 'w');
-        for (const v of ['vm', 'w']) models.knife[v].traverse((o) => { if (o.isMesh) o.material.userData.skinLift = 0.35; });   // blackened steel
+        models[id] = { vm: prepModel(g.scene, 'vm') }; models[id].w = prepModel(g.scene.clone(), 'w');
+        if (id === 'knife') for (const v of ['vm', 'w']) models[id][v].traverse((o) => { if (o.isMesh) o.material.userData.skinLift = 0.35; });   // blackened steel
       })
-      .catch((e) => console.warn('Knife model unavailable', e));
-    modelsLoading = Promise.all([...MODEL_IDS.flatMap((id) => [one(id, 'vm'), one(id, 'w')]), knife]).then(() => {
-      for (const id in MODEL_META) if (hasModel(id)) MUZZLE[id] = MODEL_META[id].muzzle;
+      .catch((e) => console.warn(`Weapon model ${id} unavailable`, e));
+    modelsLoading = Promise.all([...MODEL_IDS.flatMap((id) => [one(id, 'vm'), one(id, 'w')]), ...SINGLE_IDS.map(single)]).then(() => {
+      for (const id in MODEL_META) if (hasModel(id) && MODEL_META[id].muzzle) MUZZLE[id] = MODEL_META[id].muzzle;
     });
   }
   return modelsLoading;

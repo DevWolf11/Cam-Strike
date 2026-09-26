@@ -85,11 +85,11 @@ A full-strength throw carries a grenade about 35m; the underhand lob is for shor
 
 ### Weapon models and first-person arms
 
-Every gun, the three grenades and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18 and a C4 bundle). Each has two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knives and the molotov are still built in code.
+Every gun, all four grenades, the classic knife and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18, a bottle molotov, an M9-style bayonet and a C4 bundle). The guns, grenades and C4 each have two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knife and molotov are small enough to use one model for both. The molotov's rag burns in your hand and trails flames in flight. The Karambit, Butterfly and Bayonet knife styles are still built in code.
 
 In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist). Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. A wrist can't roll against the forearm without the skin pinching into a thin neck, so most of each hand's roll is carried by the forearm, as it is in a real arm.
 
-The grips are fitted to each model rather than posed by hand. The pistol grips and handguards were measured from the models (their cross-sections, as solid ellipses). When you draw a weapon, each hand slides along its palm until the palm rests on the grip, then every finger closes joint by joint until it touches: the whole finger curls together first, as a real hand closes, then the outer joints keep wrapping. So the right hand wraps the pistol grip with the index finger on the trigger, the left hand cradles the handguard from below with its fingers up the far side, and the pistol is held two-handed in a thumbs-forward grip, with the support hand wrapped around the shooting hand. The knife sits in a fist, blade up. It slashes in alternating forehand and backhand strokes that sweep across the screen, eased through keyframes. Grenades sit in the fist with the thumb over the spoon. The throw winds up, whips forward, follows through, and then the next grenade is drawn. If the models can't load, the game falls back to its built-in guns and hands.
+The grips are fitted to each model rather than posed by hand. The pistol grips and handguards were measured from the models (their cross-sections, as solid ellipses). When you draw a weapon, each hand slides along its palm until the palm rests on the grip, then every finger closes joint by joint until it touches: the whole finger curls together first, as a real hand closes, then the outer joints keep wrapping. So the right hand wraps the pistol grip with the index finger on the trigger, the left hand cradles the handguard from below with its fingers up the far side, and the pistol is held two-handed in a thumbs-forward grip, with the support hand wrapped around the shooting hand. The knife sits in a hammer grip, knuckles toward the edge. Its idle, draw and two slashes are motion-captured from an animated knife model: the knife's path is replayed in view space and our own arms grip and follow it, so they match every other weapon. Swings alternate the two slashes, and a new swing blends in from wherever the knife is. Grenades sit in the fist with the thumb over the spoon. The throw winds up, whips forward, follows through, and then the next grenade is drawn. If the models can't load, the game falls back to its built-in guns and hands.
 
 ### Skins and agents
 
@@ -202,7 +202,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
 | `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
 | `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
-| `js/weapons3d.js` | Loads the gun, grenade and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/weapons3d.js` | Loads the gun, grenade, knife and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/knifeanim.js` | The knife's first-person idle, slash and draw motion (sampled from the animated knife model) |
 | `js/fparms.js` | Rigged first-person arms: IK hand placement on each gun, finger grips |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
@@ -235,6 +236,8 @@ Weapon and first-person arm models, converted and optimised for the game (`asset
 - Smoke grenade: ["M18 Smoke Grenade"](https://skfb.ly/6Soqp) by Vanillatography
 - C4: ["Simple C4- Bomb"](https://skfb.ly/6zLxq) by Blender3D
 - First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen
+- Classic knife and its motion: ["knife Animated"](https://skfb.ly/6XZJB) by DJMaesen (the knife mesh and the knife's path through the idle, slash and draw clips; the model's own arms aren't used)
+- Molotov: ["Molotov Cocktail"](https://sketchfab.com/3d-models/molotov-cocktail-e57a0fd669974a3dab7d3919bda9032c) by LiliumLetifer (the bottle's brand label was painted out and the model's flame sprites were left out; the flames are the game's own)
 
 Sound effects, all CC0 (public domain), from [Freesound](https://freesound.org) and [Kenney](https://kenney.nl):
 - **Gunshots:** "9mm pistol shot" by michorvath, "Glock 19X" and "Heckler & Koch MP7 Suppressed" by areniporgen, "silenced pistol shot" by Clutvh, "Mossberg 500A - 1 shot and pump" by AnthonyChan0, "shotgun shoot" by MrGungus, two AK-47 recordings by serøutōnin--deprivəd, "FPS Sniper Shot" by qubodup, "Rifle Gun Shot 02" by LilMati.
