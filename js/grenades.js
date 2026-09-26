@@ -2,10 +2,12 @@ import * as THREE from '../lib/three.module.min.js';
 import { GRENADES } from './config.js';
 import { world, pointBlocked, hasLOS, groundAt } from './world.js';
 import { grenadeObject } from './weapons3d.js';
-import { radialTex, puffTex } from './textures.js';
+import { glowTex } from './particles.js';
 import * as SFX from './audio.js';
 import { ragdollBlast } from './character.js';
 
+
+const _lp = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 
 // Thrown projectiles and their lingering effects (smoke clouds, fire patches).
 export class Grenades {
@@ -15,8 +17,7 @@ export class Grenades {
     this.flying = [];
     this.smokes = [];
     this.fires = [];
-    this.smokeTex = puffTex();
-    this.fireTex = radialTex('rgba(255,210,90,1)', 'rgba(255,60,10,0)');
+    this.glowTex = glowTex();
     this.visualOnly = false;      // network clients only draw; the host decides damage
   }
 
@@ -28,7 +29,9 @@ export class Grenades {
     const vel = dir.multiplyScalar(speed).add(new THREE.Vector3(a.vx * 0.5, 2.0, a.vz * 0.5));
     const mesh = grenadeObject(type);
     mesh.position.copy(pos); this.scene.add(mesh);
-    this.flying.push({ type, pos, vel, t: 0, owner: a, mesh, still: 0 });
+    this.flying.push({ type, pos, vel, t: 0, owner: a, mesh, still: 0, spin: new THREE.Vector3(8 + Math.random() * 4, (Math.random() - 0.5) * 6, 5 + Math.random() * 3), bounceT: 0 });
+    const s = a === this.g.player ? null : this.g.soundFrom(a.pos, 1.4);
+    if (!s || s.dist < 12) SFX.throwWhoosh(s);
     a.nades[type]--;
   }
 
@@ -52,27 +55,37 @@ export class Grenades {
           if (floorHit && n.type === 'molotov') { n.t = 99; break; }
         }
         if (!bounced) { n.vel.multiplyScalar(-0.3); }
-        if (n.vel.length() > 2) SFX.nadeBounce(this.g.soundFrom(n.pos).dist);
+        const v = n.vel.length();
+        if (v > 1.2 && n.t - n.bounceT > 0.06) { n.bounceT = n.t; const s = this.g.soundFrom(n.pos, 0); SFX.nadeBounce(s.dist, s.pan, v, s.occl); }
+        n.spin.multiplyScalar(0.55);
       }
       n.mesh.position.copy(n.pos);
-      n.mesh.rotation.x += dt * 8; n.mesh.rotation.z += dt * 5;
+      // tumbles in the air, rolls to a stop on the ground
+      const onGround = Math.abs(n.vel.y) < 0.4 && pointBlocked(n.pos.x, n.pos.y - 0.08, n.pos.z);
+      if (onGround) { n.spin.multiplyScalar(Math.max(0, 1 - dt * 6)); n.vel.x *= Math.max(0, 1 - dt * 2.5); n.vel.z *= Math.max(0, 1 - dt * 2.5); }
+      n.mesh.rotation.x += dt * n.spin.x; n.mesh.rotation.y += dt * n.spin.y; n.mesh.rotation.z += dt * n.spin.z;
       if (n.t >= def.fuse && !this.visualOnly) { this.detonate(n); this.scene.remove(n.mesh); this.flying.splice(i, 1); }
     }
 
     // --- smoke clouds ---
+    const E = this.g.effects, blocked = (x, y, z) => pointBlocked(x, y, z);
     for (let i = this.smokes.length - 1; i >= 0; i--) {
       const s = this.smokes[i];
       s.t += dt;
       const grow = Math.min(1, s.t / 1.3), fade = s.t > s.dur - 2 ? Math.max(0, (s.dur - s.t) / 2) : 1;
       s.w.r = GRENADES.smoke.radius * grow * (fade > 0.3 ? 1 : fade / 0.3);
-      for (const p of s.puffs) {
-        p.sprite.position.set(s.x + p.ox * grow, s.y + p.oy * grow + Math.sin(s.t * 0.4 + p.ph) * 0.15, s.z + p.oz * grow);
-        p.sprite.scale.setScalar(p.size * (0.4 + 0.6 * grow));
-        p.sprite.material.opacity = 0.97 * fade;
-        p.sprite.material.rotation = p.ph + s.t * 0.05 * (p.ph > 3 ? 1 : -1);
+      // the canister vents for the first 1.4 s: puffs burst out, slow down, pile up against walls and
+      // fill the space (a dome ~4 m wide and ~5 m tall, matching the cloud that blocks sight)
+      const N = E.quality === 'low' ? 30 : 46, want = Math.min(N, Math.floor(s.t / 1.4 * N));
+      while (s.n < want) {
+        const k = s.n++, a = k * 2.399 + Math.random() * 0.5, el = Math.acos(1 - Math.random() * 0.85);   // more sideways than up
+        const sp = (k % 4 === 0 ? 1.5 : 5.5) + Math.random() * 4.5, h = Math.sin(el), up = Math.cos(el);    // every 4th fills the core
+        const shade = 0.78 + Math.random() * 0.12, c = Math.round(shade * 255);
+        E.smokePuff({ x: s.x, y: s.y + 0.4, z: s.z, vx: Math.cos(a) * h * sp, vy: up * sp * 0.75, vz: Math.sin(a) * h * sp,
+          drag: 2.1, lift: 0.04, wander: 0.35, collide: blocked, size: 1.2, grow: 3.4, maxSize: (3.6 + Math.random() * 1.6) * (N < 40 ? 1.15 : 1),
+          life: s.dur - s.t + Math.random() * 1.2, alpha: 0.93, fadeIn: 0.15, fadeOut: 2.6, spin: (Math.random() - 0.5) * 0.12 }, (c << 16) | (c << 8) | Math.round(c * 0.97));
       }
       if (s.t >= s.dur) {
-        for (const p of s.puffs) this.scene.remove(p.sprite);
         world.smokes.splice(world.smokes.indexOf(s.w), 1);
         this.smokes.splice(i, 1);
       }
@@ -84,29 +97,42 @@ export class Grenades {
       f.t += dt; f.tick -= dt;
       const put = world.smokes.some((s) => s.r > 1 && Math.hypot(s.x - f.x, s.z - f.z) < s.r + f.r * 0.5);
       const fade = f.t > f.dur - 1 ? Math.max(0, f.dur - f.t) : 1;
-      for (const p of f.flames) {
-        const flick = 0.75 + Math.sin(f.t * 14 + p.ph) * 0.25;
-        p.sprite.scale.set(p.size * flick, p.size * 1.6 * flick, 1);
-        p.sprite.material.opacity = fade;
+      // the burning pool spreads from where the bottle broke; flames keep springing up across it
+      const spread = Math.min(f.r, 0.7 + f.t * 9);
+      f.acc += dt * (28 + 72 * (spread / f.r) ** 2) * fade;
+      while (f.acc >= 1) {
+        f.acc--;
+        const a = Math.random() * 6.283, rr = Math.sqrt(Math.random()) * spread, x = f.x + Math.cos(a) * rr, z = f.z + Math.sin(a) * rr;
+        const gy = groundAt(x, z, f.y + 0.4);
+        if (Math.abs(gy - f.y) > 0.6 || pointBlocked(x, gy + 0.2, z)) continue;
+        const edge = 1 - 0.5 * rr / f.r, low = Math.random() < 0.35, w = (low ? 0.9 + Math.random() * 0.5 : 0.5 + Math.random() * 0.55) * edge;
+        // tall tongues plus low, wide ones that make a burning carpet between them
+        E.flame({ x, y: gy - 0.08, z, vy: 0.3 + Math.random() * 0.3, size: w, aspect: low ? 1.1 : 2, grow: -0.15, life: 0.5 + Math.random() * 0.4, fadeIn: 0.08, fadeOut: 0.25, alpha: low ? 0.55 : 0.7 });
       }
+      f.glow.material.opacity = (0.32 + Math.sin(f.t * 17) * 0.05 + Math.sin(f.t * 7.3) * 0.05) * fade * Math.min(1, spread / f.r * 1.5);
+      f.glow.scale.setScalar(spread * 2.4);
+      E.glowLight(_lp.set(f.x, f.y + 0.9, f.z), (6 + Math.sin(f.t * 21) * 1.2 + Math.sin(f.t * 9) * 1.2) * fade);
       // smoke and embers rising off the flames
       f.smokeT = (f.smokeT || 0) - dt;
       if (f.smokeT <= 0 && fade > 0.2) {
-        f.smokeT = 0.18;
-        const p = f.flames[Math.floor(Math.random() * f.flames.length)].sprite.position;
-        this.g.effects.puff(new THREE.Vector3(p.x, p.y + 0.8, p.z), 0x2e2a26, 1.1 + Math.random() * 0.8, 2.2, 1.6, 0.45);
-        this.g.effects.sparks.emit(p.x, p.y, p.z, (Math.random() - 0.5) * 0.8, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 0.8, 0.8 + Math.random() * 0.6, 1, 0.55, 0.15);
+        f.smokeT = 0.14;
+        const a = Math.random() * 6.283, rr = Math.random() * spread * 0.8, x = f.x + Math.cos(a) * rr, z = f.z + Math.sin(a) * rr;
+        E.smokePuff({ x, y: f.y + 1.2, z, vy: 1.6 + Math.random(), vx: (Math.random() - 0.5) * 0.5, vz: (Math.random() - 0.5) * 0.5, drag: 0.3,
+          size: 1.1, grow: 1.1, life: 2.4 + Math.random(), alpha: 0.4, fadeIn: 0.4, fadeOut: 1.4 }, 0x2c2926);
+        E.sparks.emit(x, f.y + 0.3, z, (Math.random() - 0.5) * 0.8, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 0.8, 0.8 + Math.random() * 0.6, 1, 0.55, 0.15);
       }
+      if (f.snd) { f.sndT = (f.sndT || 0) - dt; if (f.sndT <= 0) { f.sndT = 0.15; f.snd.set(this.g.soundFrom(f, 0.5), fade); } }
       if (f.tick <= 0 && !this.visualOnly) {
         f.tick = 0.25;
-        SFX.fireCrackle(this.g.soundFrom(f).dist);
         for (const a of this.g.agents) {
           if (!a.alive || Math.hypot(a.pos.x - f.x, a.pos.z - f.z) > f.r || Math.abs(a.pos.y - f.y) > 1.2) continue;
           this.g.applyDamage(a, f.owner, 'molotov', GRENADES.molotov.dps * 0.25, false, null);
         }
       }
       if (f.t >= f.dur || put) {
-        for (const p of f.flames) this.scene.remove(p.sprite);
+        if (f.snd) f.snd.stop();
+        if (put) { const s = this.g.soundFrom(f, 0.5); SFX.smokePop(s.dist, s.pan, s.occl); }
+        this.scene.remove(f.glow); f.glow.material.dispose();
         this.fires.splice(i, 1);
       }
     }
@@ -150,42 +176,35 @@ export class Grenades {
 
   // Visuals + sound of a detonation (runs on host and clients)
   fx(type, x, y, z, owner = null) {
-    const g = this.g, P = new THREE.Vector3(x, y, z), snd = g.soundFrom(P);
+    const g = this.g, P = new THREE.Vector3(x, y, z), snd = g.soundFrom(P, 0.3);
     if (type === 'he') {
       g.effects.explode(P.clone(), 0.55);
       ragdollBlast(P.x, P.y, P.z, GRENADES.he.radius, 5.5);
-      SFX.heBoom(snd.dist);
+      SFX.heBoom(snd.dist, snd.pan, snd.occl);
     } else if (type === 'flash') {
-      g.effects.flash(P.clone(), 6, 0.25); g.effects.pointLight(P, 40, 0.3);
-      SFX.flashBang(snd.dist);
+      g.effects.flashBurst(P.clone().setY(P.y + 0.15));
+      SFX.flashBang(snd.dist, snd.pan, snd.occl);
     } else if (type === 'smoke') {
-      SFX.smokePop(snd.dist);
-      const gy = groundAt(P.x, P.z, 0.2);
+      SFX.smokePop(snd.dist, snd.pan, snd.occl);
+      const gy = groundAt(P.x, P.z, P.y + 0.3);
       const w = { x: P.x, y: gy + 1.5, z: P.z, r: 0 };
       world.smokes.push(w);
-      const puffs = [];
-      for (let k = 0; k < 24; k++) {
-        const a = k / 24 * Math.PI * 2 + Math.random() * 0.3, rr = 0.6 + Math.random() * 2.8;
-        const mat = new THREE.SpriteMaterial({ map: this.smokeTex, transparent: true, depthWrite: false, color: new THREE.Color().setHSL(0.1, 0.03, 0.55 + Math.random() * 0.15), opacity: 0 });
-        const sp = new THREE.Sprite(mat);
-        this.scene.add(sp);
-        puffs.push({ sprite: sp, ox: Math.cos(a) * rr, oy: -0.6 + Math.random() * 2.6, oz: Math.sin(a) * rr, size: 3.5 + Math.random() * 2.5, ph: Math.random() * 6 });
-      }
-      this.smokes.push({ x: P.x, y: gy + 1.5, z: P.z, t: 0, dur: GRENADES.smoke.duration, puffs, w });
+      this.smokes.push({ x: P.x, y: gy, z: P.z, t: 0, dur: GRENADES.smoke.duration, n: 0, w });
     } else if (type === 'molotov') {
-      SFX.fireWhoosh(snd.dist);
-      const gy = groundAt(P.x, P.z, 0.2);
-      const flames = [];
-      for (let k = 0; k < 14; k++) {
-        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * GRENADES.molotov.radius;
-        const fx = P.x + Math.cos(a) * rr, fz = P.z + Math.sin(a) * rr;
-        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.fireTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-        const size = 0.8 + Math.random() * 0.8;
-        sp.position.set(fx, groundAt(fx, fz, 0.1) + size * 0.7, fz);
-        this.scene.add(sp);
-        flames.push({ sprite: sp, size, ph: Math.random() * 6 });
+      SFX.fireWhoosh(snd.dist, snd.pan, snd.occl);
+      const gy = groundAt(P.x, P.z, P.y + 0.3), r = GRENADES.molotov.radius;
+      g.effects.decal(3, _lp.set(P.x, gy, P.z), _up, r * 1.7);
+      // splash of burning fuel
+      for (let k = 0; k < 10; k++) {
+        const a = Math.random() * 6.283, v = 2 + Math.random() * 4;
+        g.effects.flame({ x: P.x, y: gy, z: P.z, vx: Math.cos(a) * v, vz: Math.sin(a) * v, vy: 1.5, drag: 3, size: 0.8 + Math.random() * 0.5, life: 0.5, fadeOut: 0.3 });
       }
-      this.fires.push({ x: P.x, y: gy, z: P.z, r: GRENADES.molotov.radius, t: 0, dur: GRENADES.molotov.duration, tick: 0, flames, owner });
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, fog: true }));
+      glow.rotation.x = -Math.PI / 2; glow.position.set(P.x, gy + 0.04, P.z); glow.renderOrder = 1;
+      this.scene.add(glow);
+      const fire = { x: P.x, y: gy, z: P.z, r, t: 0, dur: GRENADES.molotov.duration, tick: 0, acc: 0, glow, owner, snd: SFX.fireLoop() };
+      if (fire.snd) fire.snd.set(snd, 1);
+      this.fires.push(fire);
     }
   }
 
@@ -195,8 +214,7 @@ export class Grenades {
 
   clear() {
     for (const n of this.flying) this.scene.remove(n.mesh);
-    for (const s of this.smokes) for (const p of s.puffs) this.scene.remove(p.sprite);
-    for (const f of this.fires) for (const p of f.flames) this.scene.remove(p.sprite);
+    for (const f of this.fires) { this.scene.remove(f.glow); f.glow.material.dispose(); if (f.snd) f.snd.stop(); }
     this.flying = []; this.smokes = []; this.fires = [];
     world.smokes.length = 0;
   }

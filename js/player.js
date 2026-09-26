@@ -6,6 +6,8 @@ import { FPArms, armsReady, handSpec } from './fparms.js';
 import { armMesh } from './hands.js';
 import { fabricTex } from './textures.js';
 import * as W from './world.js';
+import * as SFX from './audio.js';
+import { reloadSounds } from './game.js';
 
 const BASE_FOV = 78;
 // Left hand position on each long gun's handguard: [forward, height]
@@ -16,14 +18,35 @@ const wrap = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 // Where the gun's grip sits in view space, per weapon kind
 export const VM = {
   rifle:  { x: 0.19, y: -0.15, z: -0.34, s: 1, rx: 0.06, ry: 0.12, rz: 0.2 },
-  pistol: { x: 0.11, y: -0.115, z: -0.3, s: 1, rx: 0.05, ry: 0.1, rz: 0.06 },
-  knife:  { x: 0.14, y: -0.12, z: -0.3, s: 1, rx: 0.7, ry: 0.35, rz: -0.25 },
-  nade:   { x: 0.15, y: -0.13, z: -0.3, s: 0.9, rx: 0.1, ry: 0.3, rz: 0 },
+  pistol: { x: 0.1, y: -0.11, z: -0.33, s: 1, rx: 0.05, ry: 0.06, rz: 0.04 },
+  knife:  { x: 0.15, y: -0.14, z: -0.3, s: 1, rx: 0.45, ry: 0.45, rz: -0.35 },
+  nade:   { x: 0.14, y: -0.085, z: -0.3, s: 0.9, rx: 0.3, ry: 0.25, rz: 0 },
   sniper: { x: 0.2, y: -0.185, z: -0.36, s: 1, rx: 0.07, ry: 0.1, rz: 0.12 },   // per-weapon override
 };
 
 // where the first-person arms' shoulders sit in view space: low and a little inward
-const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
+export const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
+// Knife slashes: keyframes of the knife's offset from its idle pose, moved around the hand rather than
+// swinging the whole view (t, dx, dy, dz, rx, ry, rz). Swings alternate forehand and backhand.
+const SLASH = [
+  [[0, 0, 0, 0, 0, 0, 0], [0.16, 0.04, 0.045, 0.03, -0.3, -0.3, 0.4], [0.4, -0.17, 0.0, -0.08, 0.2, 0.6, -0.45],
+    [0.58, -0.21, -0.03, -0.05, 0.3, 0.7, -0.55], [1, 0, 0, 0, 0, 0, 0]],
+  [[0, 0, 0, 0, 0, 0, 0], [0.16, -0.08, 0.05, 0.02, -0.25, 0.45, -0.35], [0.4, 0.05, -0.01, -0.07, 0.25, -0.5, 0.45],
+    [0.58, 0.07, -0.04, -0.04, 0.3, -0.6, 0.5], [1, 0, 0, 0, 0, 0, 0]],
+];
+// Grenade throw (the release happens at t = 0.71): wind up back past the shoulder, whip forward with the
+// arm extended toward the aim, follow through downward; the next grenade is then drawn
+const THROW = [[0, 0, 0, 0, 0, 0, 0], [0.3, 0.06, 0.06, 0.02, -0.45, 0.15, 0.25], [0.55, 0.02, 0.08, -0.02, -0.35, 0.05, 0.1],
+  [0.72, -0.06, 0.06, -0.2, 0.5, -0.15, -0.1], [0.88, -0.07, -0.08, -0.18, 0.9, -0.2, -0.15], [1, -0.04, -0.22, -0.05, 0.6, 0, 0]];
+// Catmull-Rom through keyframes: smooth, no stops at the keys
+function keyframes(K, t, out) {
+  let i = 0; while (i < K.length - 2 && t > K[i + 1][0]) i++;
+  const k0 = K[Math.max(0, i - 1)], k1 = K[i], k2 = K[i + 1], k3 = K[Math.min(K.length - 1, i + 2)];
+  const u = Math.min(1, Math.max(0, (t - k1[0]) / (k2[0] - k1[0]))), u2 = u * u, u3 = u2 * u;
+  for (let c = 1; c < 7; c++) out[c - 1] = 0.5 * (2 * k1[c] + (k2[c] - k0[c]) * u + (2 * k0[c] - 5 * k1[c] + 4 * k2[c] - k3[c]) * u2 + (3 * k1[c] - k0[c] - 3 * k2[c] + k3[c]) * u3);
+  return out;
+}
+const _ko = [0, 0, 0, 0, 0, 0];
 const _hv = new THREE.Vector3(), _hw = new THREE.Vector3(), _hf = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Vector3();
 export class PlayerController {
   constructor(game, camera, settings) {
@@ -40,6 +63,15 @@ export class PlayerController {
     this.anim = { swayX: 0, swayY: 0, rec: 0, recV: 0, land: 0, landV: 0, lastVy: 0, moveAmt: 0, breath: 0, lean: 0, lightT: 0, lit: 1, litNow: 1 };
     this.vm = new THREE.Group();
     this.vmScene.add(this.vm);
+    // standing inside a smoke cloud greys out the world (the cloud's puffs get clipped by the near plane),
+    // but not your own gun: a full-screen quad drawn first in the viewmodel pass
+    this.fogQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+      uniforms: { uO: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false,
+      vertexShader: 'varying vec2 vP; void main() { vP = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: 'uniform float uO; varying vec2 vP; void main() { gl_FragColor = vec4(vec3(0.74, 0.74, 0.72) - dot(vP, vP) * 0.04, uO); }',
+    }));
+    this.fogQuad.frustumCulled = false; this.fogQuad.visible = false;
+    this.fogScene = new THREE.Scene(); this.fogScene.add(this.fogQuad);
     this.vmKey = null;
     this.muzzle = new THREE.Object3D();
     this.kick = 0; this.bob = 0; this.switchT = 0;
@@ -70,12 +102,13 @@ export class PlayerController {
     const kind = a.weapon === 'nade' ? 'nade' : a.w.kind;
     const P = VM[id] || VM[kind] || VM.rifle;
     const gun = weaponMesh(id, a.loadout, 'vm');
+    const box = new THREE.Box3().setFromObject(gun);   // model space (the gun isn't placed yet)
     gun.scale.setScalar(P.s);
     gun.position.set(P.x, P.y, P.z);
     gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
     const M = this.armMats, gunId = a.weapon;
-    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(gunId), FORE[gunId] || FORE.rifle);
+    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(gunId), { min: box.min.toArray(), max: box.max.toArray() });
     // hands and sleeves ride on the gun so they follow every animation
     else if (kind === 'knife' || kind === 'nade') {
       gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
@@ -99,6 +132,7 @@ export class PlayerController {
     gun.add(this.muzzle);
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
     this.switchT = 0.35;
+    if (a === this.game.player && !this.spec) SFX.draw(kind);
   }
 
   // Put the rigged arms' hands on the gun (targets are in the gun's own space, see handSpec)
@@ -111,6 +145,7 @@ export class PlayerController {
     const D = (v) => _hv.set(v[0], v[1], v[2]).transformDirection(gun.matrixWorld).clone();
     for (const s of ['R', 'L']) {
       const h = H[s];
+      if (h.vol && !h.fitted) A.fit(s, h, gun.matrixWorld);
       if (h.view) A.hand(s, _hw.set(...h.view.wrist), _hf.set(...h.view.fwd), _hp.set(...h.view.palm), _hq.set(...h.view.pole), h.curl);
       else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl); }
     }
@@ -252,7 +287,10 @@ export class PlayerController {
     if (this.kick > 0) { S.recV += this.kick * (w.id === 'sniper' || w.id === 'shotgun' ? 16 : 9); this.kick = 0; }
     S.recV += (-S.rec * 320 - S.recV * 26) * dt; S.rec += S.recV * dt;
     // landing dip; while airborne the gun trails the vertical motion
-    if (a.onGround && !S.wasGround) S.landV -= Math.min(1.6, 0.5 + Math.abs(S.lastVy) * 0.12);
+    if (a.onGround && !S.wasGround) {
+      S.landV -= Math.min(1.6, 0.5 + Math.abs(S.lastVy) * 0.12);
+      if (a === this.game.player && Math.abs(S.lastVy) > 3) SFX.land(Math.min(0.9, 0.25 + Math.abs(S.lastVy) * 0.06));
+    }
     S.wasGround = a.onGround; S.lastVy = a.vy;
     S.landV += (-S.land * 180 - S.landV * 18) * dt; S.land += S.landV * dt;
     const airY = spring('airY', a.onGround ? 0 : clampS(-(a.vy || 0) * 0.004, 0.025), 90, 14);
@@ -274,20 +312,35 @@ export class PlayerController {
     let posX = S.swayX * 0.25 + inX, posY = S.land * 0.06 - S.swayY * 0.2 - m * 0.006 + airY, posZ = S.rec * 0.07 + inZ;
     // draw: rises from below with a twist, eased out
     if (this.switchT > 0) { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
+    // reload sounds for your own reloads (other players' are played by the game, positioned)
+    const rNow = a.reloadT > 0 ? 1 - a.reloadT / w.reload : 0;
+    if (a === this.game.player && rNow > 0) reloadSounds(a, S.reloadR || 0, rNow, null);
+    S.reloadR = rNow;
     if (a.reloadT > 0) {
       // reload: tilt the gun, drop the mag side toward you, slap it home near the end
       const r = 1 - a.reloadT / w.reload, dip = Math.sin(Math.min(1, r * 1.15) * Math.PI);
       rotZ += dip * 0.55; rotX -= dip * 0.35; posY -= dip * 0.08; posX -= dip * 0.03;
       if (r > 0.62 && r < 0.78) { const q = Math.sin((r - 0.62) / 0.16 * Math.PI); posY += q * 0.025; rotX += q * 0.12; }
     }
-    if (a.actionT > 0) {
-      const t = a.actionT;
-      if (this.vmKind === 'knife') { const s = Math.sin(t * Math.PI); rotY += s * 0.9; rotZ -= s * 0.6; posX -= s * 0.12; posZ -= s * 0.1; }
-      if (this.vmKind === 'nade') { const s = t < 0.5 ? t * 2 : 1 - (t - 0.5) * 2; posY += s * 0.12; posZ += t < 0.5 ? s * 0.12 : -s * 0.2; rotX -= s * 0.6; }
-    }
-    if (a.throwing) { posY -= 0.05; rotX += 0.25; }
     vm.position.set(bx + posX, by + posY, posZ);
     vm.rotation.set(rotX, rotY, rotZ);
+    if (this.vmKind === 'nade') {
+      const at = a.actionT || 0;
+      if (this.lastAct > 0 && !at) this.switchT = 0.35;          // thrown: draw the next one
+      this.lastAct = at;
+      const o = at > 0 ? keyframes(THROW, at, _ko) : _ko.fill(0), B = this.vmBase;
+      this.vmGun.position.set(B.x + o[0], B.y + o[1], B.z + o[2]);
+      this.vmGun.rotation.set((B.rx || 0) + o[3], (B.ry ?? 0.05) + o[4], (B.rz || 0) + o[5]);
+    }
+    if (this.vmKind === 'knife') {
+      // a new swing starts: alternate forehand / backhand
+      const at = a.actionT || 0;
+      if (at > 0 && (!this.lastAct || at < this.lastAct)) this.slashN = (this.slashN || 0) + 1;
+      this.lastAct = at;
+      const o = at > 0 ? keyframes(SLASH[(this.slashN || 0) % 2], at, _ko) : _ko.fill(0), B = this.vmBase;
+      this.vmGun.position.set(B.x + o[0], B.y + o[1], B.z + o[2]);
+      this.vmGun.rotation.set((B.rx || 0) + o[3], (B.ry ?? 0.05) + o[4], (B.rz || 0) + o[5]);
+    }
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
     if (this.arms) this.poseArms(vm.visible);
     this.vmCamera.aspect = this.camera.aspect;
@@ -341,6 +394,17 @@ export class PlayerController {
     // sun direction in view space so the gun is lit from the same side as the world
     this.vmSun.position.copy(this.sunDir).transformDirection(this.camera.matrixWorldInverse).multiplyScalar(5);
     renderer.render(scene, this.camera);
+    // inside a smoke cloud?
+    const c = this.camera.position;
+    let fog = 0;
+    for (const s of this.game.grenades.smokes) {
+      const r = s.w.r, d = Math.hypot(c.x - s.x, c.z - s.z);
+      if (r > 0.5 && c.y < s.w.y + r * 0.9) fog = Math.max(fog, Math.min(1, (r - d) / 1.6));
+    }
+    this.fogQuad.visible = fog > 0.01; this.fogQuad.material.uniforms.uO.value = Math.min(0.97, fog);
+    // (deep inside, the cloud's own puffs are hidden anyway; they're skipped next frame to save fill rate)
+    this.game.effects.smokeB.mesh.material.visible = fog < 0.95;
+    if (this.fogQuad.visible) { renderer.autoClear = false; renderer.render(this.fogScene, this.vmCamera); renderer.autoClear = true; }
     if (this.vm.visible) {
       renderer.autoClear = false;
       // the last world draw may have left depth writes off (sprites, decals), which makes clearDepth a no-op

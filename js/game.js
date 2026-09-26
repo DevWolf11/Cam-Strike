@@ -12,6 +12,25 @@ import { weaponMesh, SKINS, KNIVES, prewarmWeapons } from './weapons3d.js';
 import { OUTFITS, setRagdollPushers, ragdollBlast } from './character.js';
 
 const _v = new THREE.Vector3(), _o = new THREE.Vector3(), _d = new THREE.Vector3();
+// A reload's sounds, as fractions of its duration (they line up with the first-person reload animation)
+export const RELOAD_STEPS = {
+  pistol: [[0.14, 'magout'], [0.62, 'magin'], [0.84, 'slide']],
+  shotgun: [[0.12, 'shell'], [0.3, 'shell'], [0.48, 'shell'], [0.66, 'shell'], [0.86, 'pump']],
+  sniper: [[0.16, 'magout'], [0.62, 'magin'], [0.82, 'bolt']],
+  default: [[0.16, 'magout'], [0.64, 'magin'], [0.84, 'bolt']],
+};
+// play the steps crossed between reload progress r0 and r1 (0..1); where() gives the sound position (lazy)
+export function reloadSounds(a, r0, r1, where) {
+  const id = a.w?.id;
+  if (!id || id === 'knife') return;
+  let s;
+  for (const [r, step] of RELOAD_STEPS[id] || RELOAD_STEPS.default) {
+    if (r0 < r && r1 >= r) {
+      if (where && s === undefined) { s = where(); if (s.dist > 14) return; }
+      SFX.reloadStep(id, step, s || null);
+    }
+  }
+}
 const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const other = (t) => (t === 'T' ? 'CT' : 'T');
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -78,7 +97,7 @@ export class Game {
     W.setMap(this.mapDef);
     this.mapObjs = buildMap(scene, this.mapDef, opts.quality);
     prewarmWeapons();
-    this.effects = new Effects(scene, camera, { quality: opts.quality, theme: this.mapDef.theme });
+    this.effects = new Effects(scene, camera, { quality: opts.quality, theme: this.mapDef.theme, sound: (p, h) => this.soundFrom(p, h) });
     this.grenades = new Grenades(this);
     this.listeners = [];
     this.time = 0;
@@ -117,6 +136,7 @@ export class Game {
     this.timer = this.rules.freezeTime;
     this.grenades.clear();
     this.effects.clearDecals();
+    this.effects.clearParticles();
     const zc = (k) => { const Z = this.mapDef.zones[k]; return { x: (Z.x0 + Z.x1) / 2, z: (Z.z0 + Z.z1) / 2 }; };
     for (const team of ['T', 'CT']) {
       const members = this.teamOf(team);
@@ -236,18 +256,21 @@ export class Game {
       a.stepAcc = 0;
       if (sp > 3.2 && a.onGround) {
         if (a === this.player) SFX.step(0.05);
-        else { const s = this.soundFrom(a.pos); if (s.dist < 18) SFX.step(0.18 / (1 + s.dist * 0.25), s.pan); }
+        else { const s = this.soundFrom(a.pos, 0.2); if (s.dist < 28) SFX.step(0.13, s.pan, s); }
         this.noise(a, 12);
       }
     }
   }
 
-  soundFrom(p) {
+  // How a sound at p is heard from the camera: distance, left/right, and whether a wall is in the way
+  // (p is a point on the floor or in the air; sounds are taken from about chest height)
+  soundFrom(p, h = 1.1) {
     const c = this.camera;
     const dx = p.x - c.position.x, dz = p.z - c.position.z, dist = Math.hypot(dx, dz);
     const yaw = c.rotation.y, rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const pan = dist > 0.1 ? Math.max(-1, Math.min(1, (dx * rx + dz * rz) / dist)) : 0;
-    return { dist, pan };
+    const occl = dist > 1.5 && dist < 120 && !W.hasLOS(c.position.x, c.position.y, c.position.z, p.x, p.y + h, p.z, false);
+    return { dist, pan, occl };
   }
 
   noise(a, radius) {
@@ -273,7 +296,6 @@ export class Game {
     const inv = a.inv[a.weapon], w = a.w;
     if (!inv || a.reloadT > 0 || inv.mag >= w.mag || inv.reserve <= 0) return false;
     a.reloadT = w.reload; a.scoped = false;
-    if (a === this.player) SFX.reload();
     if (a.human) this.emit('reload', { agent: a });
     return true;
   }
@@ -338,10 +360,12 @@ export class Game {
     this.emit('fxShot', { a, weapon: w.id, muzzle: [+muzzle.x.toFixed(2), +muzzle.y.toFixed(2), +muzzle.z.toFixed(2)], ends: ends.slice(0, 4) });
     if (a === this.player) {
       SFX.gunshot(w.id, 0, 0);
+      SFX.afterShot(w.id);
       if (anyHit && !anyTeam) anyHead ? SFX.headshot() : SFX.hitmarker();
     } else {
-      const s = this.soundFrom(a.pos);
-      SFX.gunshot(w.id, s.dist, s.pan);
+      const s = this.soundFrom(a.pos, 1.5);
+      SFX.gunshot(w.id, s.dist, s.pan, s.occl);
+      if (s.dist < 15) SFX.afterShot(w.id, s);
     }
     this.noise(a, 40);
     a.spotted = Math.max(a.spotted, 1.2);
@@ -364,13 +388,19 @@ export class Game {
       if (!W.hasLOS(_o.x, _o.y, _o.z, b.pos.x, b.pos.y + 1.2, b.pos.z, false)) continue;
       if (d < bestD) { bestD = d; best = b; }
     }
-    if (a === this.player || this.soundFrom(a.pos).dist < 12) SFX.knifeSwing();
+    const snd = a === this.player ? null : this.soundFrom(a.pos, 1.3);
+    if (!snd || snd.dist < 14) SFX.knifeSwing(snd);
+    if (!best && (!snd || snd.dist < 14)) {
+      // the blade meets a wall
+      const h = W.raycast(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z, w.range);
+      if (h.dist < w.range) setTimeout(() => SFX.knifeWall(snd), 90);
+    }
     if (best) {
       const fx = -Math.sin(best.yaw), fz = -Math.cos(best.yaw);
       const dx = best.pos.x - a.pos.x, dz = best.pos.z - a.pos.z, dl = Math.hypot(dx, dz) || 1;
       const backstab = (fx * dx + fz * dz) / dl > 0.5;
       this.effects.blood(_v.set(best.pos.x, best.pos.y + 1.2, best.pos.z), new THREE.Vector3(-Math.sin(a.yaw), 0, -Math.cos(a.yaw)), backstab);
-      SFX.knifeHit();
+      SFX.knifeHit(snd);
       this.applyDamage(best, a, 'knife', backstab ? w.backstab : w.damage, false, _d.clone().multiplyScalar(w.impulse));
       if (a.human) this.emit('shot', { agent: a, hit: true, head: backstab, team: best.team === a.team });
     }
@@ -385,7 +415,8 @@ export class Game {
     a.throwing = { type, power, t: 0.25 };
     a.actionT = 0.001;
     a.fireCd = 0.9;
-    if (a === this.player || this.soundFrom(a.pos).dist < 10) SFX.pin();
+    const snd = a === this.player ? null : this.soundFrom(a.pos, 1.3);
+    if (!snd || snd.dist < 12) SFX.pin(snd);
     return true;
   }
 
@@ -535,7 +566,7 @@ export class Game {
     b.state = 'exploded'; this.bombMesh.visible = false;
     this.effects.explode(_v.copy(b.pos).setY(b.pos.y + 1));
     ragdollBlast(b.pos.x, b.pos.y + 0.5, b.pos.z, 22, 11);
-    SFX.explosion(this.soundFrom(b.pos).dist);
+    { const sb = this.soundFrom(b.pos, 0.5); SFX.explosion(sb.dist, sb.pan); }
     this.emit('explode');
     for (const a of this.agents) {
       if (!a.alive) continue;
@@ -582,7 +613,12 @@ export class Game {
     for (const a of this.agents) {
       if (!a.alive) continue;
       if (a.fireCd > 0) a.fireCd -= dt;
-      if (a.reloadT > 0) { a.reloadT -= dt; if (a.reloadT <= 0) { a.reloadT = 0; this.finishReload(a); } }
+      if (a.reloadT > 0) {
+        const r0 = 1 - a.reloadT / a.w.reload;
+        a.reloadT -= dt;
+        if (a !== this.player) reloadSounds(a, r0, 1 - Math.max(0, a.reloadT) / a.w.reload, () => this.soundFrom(a.pos, 1.3));
+        if (a.reloadT <= 0) { a.reloadT = 0; this.finishReload(a); }
+      }
       if (a.autoReload > 0) { a.autoReload -= dt; if (a.autoReload <= 0) { a.autoReload = 0; this.reload(a); } }
       if (a.blindT > 0) a.blindT -= dt;
       if (a.actionT > 0) { a.actionT += dt / 0.35; if (a.actionT >= 1) a.actionT = 0; }
