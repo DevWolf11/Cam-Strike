@@ -91,7 +91,7 @@ export class PlayerController {
     };
     this.envBuilt = false;
     // rigged first-person arms (fall back to the simple built-in hands if they didn't load)
-    this.arms = armsReady() ? new FPArms(this.vmScene, o.sleeve, { anchor: ARM_ANCHOR }) : null;
+    this.arms = armsReady() ? new FPArms(this.vmScene, o.sleeve, { anchor: { ...ARM_ANCHOR } }) : null;
     game.on((type, d) => {
       if (type === 'shot' && d.agent === game.player && !d.confirm) this.kick = 1;
       if (type === 'roundStart') { this.setSpectate(null); this.deathT = 0; }
@@ -113,7 +113,10 @@ export class PlayerController {
     gun.rotation.set(P.rx || 0, P.ry ?? 0.05, P.rz || 0);
     this.vm.add(gun);
     const M = this.armMats, gunId = a.weapon;
-    if (this.arms) this.handSpec = handSpec(gunId, kind, gunMeta(id), { min: box.min.toArray(), max: box.max.toArray() });
+    if (this.arms) {
+      const model = kind === 'knife' ? ((a.loadout?.knifeType || 'classic') === 'classic' ? 'knife' : null) : id;
+      this.handSpec = handSpec(gunId, kind, gunMeta(id), { min: box.min.toArray(), max: box.max.toArray() }, model);
+    }
     // hands and sleeves ride on the gun so they follow every animation
     else if (kind === 'knife' || kind === 'nade') {
       gun.add(armMesh('hold', M, { wrist: [0.032, -0.046, 0.05], dir: [0.45, -0.5, 1] }));
@@ -191,6 +194,7 @@ export class PlayerController {
     const D = (v) => _hv.set(v[0], v[1], v[2]).transformDirection(gun.matrixWorld).clone();
     for (const s of ['R', 'L']) {
       const h = H[s];
+      A.anchor[s] = h.anchor || ARM_ANCHOR[s];      // a baked grip brings the shoulder it was solved with
       if (h.vol && !h.fitted) A.fit(s, h, gun.matrixWorld);
       if (h.view) A.hand(s, _hw.set(...h.view.wrist), _hf.set(...h.view.fwd), _hp.set(...h.view.palm), _hq.set(...h.view.pole), h.curl);
       else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl, h.thumbDir && D(h.thumbDir), h.pointDir && D(h.pointDir)); }
