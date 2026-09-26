@@ -31,8 +31,13 @@ export const VM = {
 export const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
 // Knife: the authored motion (knifeanim.js) placed in view space: o = where the idle knife's guard sits,
 // s = metres per model unit for the motion (smaller than the model's own scale: our arms are shorter),
-// tilt = a turn of the whole motion; each clip plays at its own rate (slashes fit the 0.4 s swing cycle)
-export const KNIFE = { o: [0.17, -0.11, -0.33], s: 0.0075, tilt: [0.4, 0.3, -0.3], rate: { idle: 1, slash1: 1.6, slash2: 1.6, draw: 1.4 }, blend: 0.07 };
+// tilt = a turn of the whole motion; each clip plays at its own rate.
+// pose = an extra turn of the knife only, layered on while it's at rest: it holds the idle knife CS-style
+// (blade up and to the left, its flat toward you). It was solved for that blade direction, not tuned by
+// eye. It fades out through the fast part of each slash, so the swings keep their authored blade path.
+export const KNIFE = { o: [0.17, -0.13, -0.32], s: 0.0075, tilt: [0.4, 0.3, -0.3], pose: [-0.777, -0.0279, -0.0901, 0.6223],
+  rate: { idle: 1, slash1: 1.25, slash2: 1.25, draw: 1.2 }, blend: 0.08 };
+const _kid = new THREE.Quaternion(), _kpose = new THREE.Quaternion(), _kpq = new THREE.Quaternion();
 const _kp = { p: new THREE.Vector3(), q: new THREE.Quaternion() }, _kt = new THREE.Quaternion(), _ke = new THREE.Euler();
 // Grenade throw (the release happens at t = 0.71): wind up back past the shoulder, whip forward with the
 // arm extended toward the aim, follow through downward; the next grenade is then drawn
@@ -162,7 +167,14 @@ export class PlayerController {
     sampleKnife(K.clip, K.clip === 'idle' ? K.t % knifeClipLength('idle') : K.t, _kp);
     _kt.setFromEuler(_ke.set(...KNIFE.tilt));
     gun.position.copy(_kp.p.applyQuaternion(_kt).multiplyScalar(KNIFE.s)).add(_hq.set(...KNIFE.o));
-    gun.quaternion.copy(_kt).multiply(_kp.q);
+    // the rest pose layer: full at idle, gone between 20% and 70% of a slash
+    let w = 1;
+    if (K.clip === 'slash1' || K.clip === 'slash2') {
+      const u = K.t / len, ss = (a, b, x) => { const v = Math.min(1, Math.max(0, (x - a) / (b - a))); return v * v * (3 - 2 * v); };
+      w = 1 - ss(0, 0.2, u) + ss(0.7, 1, u);
+    }
+    _kpose.slerpQuaternions(_kid, _kpq.set(...KNIFE.pose), w);
+    gun.quaternion.copy(_kpose).multiply(_kt).multiply(_kp.q);
     if (K.blendT < KNIFE.blend) {
       const u = K.blendT / KNIFE.blend, e = u * u * (3 - 2 * u);
       gun.position.lerpVectors(K.fromP, gun.position, e); gun.quaternion.slerpQuaternions(K.fromQ, gun.quaternion, e);
