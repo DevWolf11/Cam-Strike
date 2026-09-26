@@ -8,11 +8,18 @@ import { clone as cloneSkinned } from '../lib/addons/SkeletonUtils.js';
 // it. Since the targets come from the gun, sway, recoil, reloads and swings all carry the hands.
 
 const URL = 'assets/weapons/arms.glb';
-let proto = null, loading = null;
+let proto = null, loading = null, baked = {};
 export function loadArms() {
   if (!loading) {
-    loading = new GLTFLoader().loadAsync(URL).then((g) => { proto = g.scene; })
-      .catch((e) => console.warn('First-person arms unavailable, using simple hands', e));
+    loading = Promise.all([
+      new GLTFLoader().loadAsync(URL).then((g) => { proto = g.scene; })
+        .catch((e) => console.warn('First-person arms unavailable, using simple hands', e)),
+      // grips solved offline against each gun's real mesh (tools/gripsolve.js); without them the hands are
+      // fitted at draw time instead
+      // (?nobaked: start from the fitter, for re-solving them)
+      (/nobaked/.test(location.search) ? Promise.resolve({}) : fetch('assets/weapons/grips.json').then((r) => r.json())).then((j) => { baked = j.grips || {}; })
+        .catch((e) => console.warn('Baked grips unavailable, fitting hands at draw time', e)),
+    ]);
   }
   return loading;
 }
@@ -309,10 +316,15 @@ const GRIPS = {
 // first guess: FPArms.fit() slides the hand onto the grip and curls the fingers until they touch it.
 // `box` is the model's bounding box in gun space (used for grenades).
 // The fit (FPArms.fit) is kept in the spec, in the gun's own space, so each weapon is fitted once per page
+// `model` names the model in hand (a gun, a grenade type, the classic knife); a grip baked for it wins.
 const specs = new Map();
-export function handSpec(id, kind, meta, box) {
-  const key = [id, kind, JSON.stringify(meta), JSON.stringify(box)].join('|');
-  if (!specs.has(key)) specs.set(key, buildSpec(id, kind, meta, box));
+export function handSpec(id, kind, meta, box, model) {
+  const key = [id, kind, model, JSON.stringify(meta), JSON.stringify(box)].join('|');
+  if (!specs.has(key)) {
+    const spec = buildSpec(id, kind, meta, box), B = model && baked[model];
+    if (B) for (const s of ['R', 'L']) if (B[s]) spec[s] = { ...B[s], fitted: true, curl: (f, k) => B[s].curl[f]?.[k - 1] ?? 0 };
+    specs.set(key, spec);
+  }
   return specs.get(key);
 }
 function buildSpec(id, kind, meta, box) {
