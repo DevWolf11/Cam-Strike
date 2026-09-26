@@ -60,6 +60,12 @@ button { font: inherit; color: inherit; }
 #progress .bar { height: 8px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; margin-top: 4px; }
 #progress .bar div { height: 100%; width: 0; background: var(--accent); }
 
+/* teammate name tags, placed each frame over their heads */
+#tags { position: absolute; inset: 0; overflow: hidden; }
+.ntag { position: absolute; left: 0; top: 0; transform-origin: 0 0; white-space: nowrap; text-align: center; font-weight: 700; font-size: 0.85em; line-height: 1.15; }
+.ntag b { display: inline-block; padding: 0 5px; border-radius: 4px; background: rgba(0,0,0,0.42); }
+.ntag.T { color: var(--t); } .ntag.CT { color: var(--ct); }
+.ntag i { display: block; width: 0; height: 0; margin: 2px auto 0; border: 5px solid transparent; border-bottom: 0; border-top: 6px solid currentColor; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
 #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; --gap: 6px; }
 #crosshair i { position: absolute; background: #6dff6d; box-shadow: 0 0 1px #000; }
 #crosshair .l, #crosshair .r { width: 8px; height: 2px; top: -1px; }

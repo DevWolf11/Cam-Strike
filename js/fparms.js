@@ -30,6 +30,7 @@ function frameQuat(primary, secondary, out) {
   return out.setFromRotationMatrix(_m);
 }
 const FINGERS = ['point', 'middle', 'ring', 'pink', 'thumb'];
+const TWIST_TO_FOREARM = 0.8;
 
 export class FPArms {
   // parent: the view-space scene; material tint from the outfit's sleeve colour
@@ -53,6 +54,8 @@ export class FPArms {
       }
     });
     this.root.updateMatrixWorld(true);
+    this.rl = {};   // rest local rotations
+    for (const [n, bone] of Object.entries(this.b)) this.rl[n] = bone.quaternion.clone();
     // rest data, in the view-space scene (the root never moves)
     const P = (n) => this.b[n].getWorldPosition(new THREE.Vector3());
     const Q = (n) => this.b[n].getWorldQuaternion(new THREE.Quaternion());
@@ -118,7 +121,22 @@ export class FPArms {
     this.aim(b[`${s}_arm`], R.arm, E.clone().sub(sh), n);
     this.aim(b[`${s}_elbow`], R.elbow, W.clone().sub(E), n);
     this.aim(b[`${s}_wrist`], R.wrist, fwd, palm);
+    this.spreadTwist(b[`${s}_elbow`], b[`${s}_wrist`], this.rl[`${s}_wrist`]);
     for (const c of R.curl) { c.bone.quaternion.copy(c.rest); const ang = curl(c.f, c.k); if (ang) c.bone.rotateOnAxis(c.axis, ang); }
+  }
+
+  // A wrist can't roll against the forearm without the skin collapsing into a thin "candy wrapper"
+  // neck: the roll happens along the forearm. Move most of the wrist's roll about the forearm axis
+  // onto the forearm bone (wrist position and world rotation stay the same), so it shows as a gentle
+  // twist of the sleeve near the (usually off-screen) elbow instead of a pinch at the wrist.
+  spreadTwist(forearm, wrist, restQ) {
+    const axis = _a.copy(wrist.position).normalize();                  // forearm axis, forearm space
+    const D = _q.copy(wrist.quaternion).multiply(_q2.copy(restQ).invert());   // rest -> now, forearm space
+    const tw = 2 * Math.atan2(D.x * axis.x + D.y * axis.y + D.z * axis.z, D.w);
+    const T = _q2.setFromAxisAngle(axis, Math.atan2(Math.sin(tw), Math.cos(tw)) * TWIST_TO_FOREARM);
+    forearm.quaternion.multiply(T);
+    wrist.quaternion.premultiply(T.invert());
+    forearm.updateWorldMatrix(false, true);
   }
 
   dispose() { this.root.removeFromParent(); }
@@ -135,13 +153,23 @@ export function handSpec(id, kind, meta, fore) {
   const fwdR = nrm([f0[0] - 0.32, f0[1], f0[2]]);
   const palmR = [-1, 0, 0];
   const hold = kind === 'knife' || kind === 'nade';
+  // slim pistol and rifle grips need a tighter fist than a grenade, or the fingertips poke out past them
+  const grip = hold ? [1.15, 1.2, 0.8] : [1.35, 1.4, 1.0];
   const R = {
     // (a grenade sits higher, on top of the fist, so its body shows)
     wrist: (kind === 'nade' ? [0.03, -0.04, 0.0] : [0.03, 0, -0.025]).map((x, i) => x + g[i] * 0.045 - fwdR[i] * 0.075),
     fwd: fwdR, palm: palmR, pole: [0.3, -0.35, 0.25],
     // the thumb swings out of the palm to lie along the far side; the index finger rests on the trigger
-    curl: (f, k) => (f === 'thumb' ? [-0.4, 0.2, 0.1][k - 1] : f === 'point' && !hold ? [0.8, 0.7, 0.4][k - 1] : [1.15, 1.2, 0.8][k - 1]),
+    curl: (f, k) => (f === 'thumb' ? [-0.4, 0.2, 0.1][k - 1] : f === 'point' && !hold ? [0.8, 0.7, 0.4][k - 1] : grip[k - 1]),
   };
+  if (kind === 'knife') {
+    // the handle runs lengthwise behind the guard (+Z), so it lies across the palm like a hammer grip:
+    // knuckles toward the edge (-Y), palm against the handle's right side, thumb over the spine
+    const fwdK = nrm([-0.25, -0.97, -0.24]);
+    R.wrist = [0.03, -0.002, 0.055].map((x, i) => x - fwdK[i] * 0.075);
+    R.fwd = fwdK;
+    R.curl = (f, k) => (f === 'thumb' ? [0.3, 0.5, 0.3][k - 1] : [1.25, 1.3, 0.9][k - 1]);
+  }
   let L;
   if (kind === 'rifle' || kind === 'sniper' || (meta && meta.fore)) {
     const [fu, fv] = meta?.fore || fore;

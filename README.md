@@ -82,7 +82,7 @@ A full-strength throw carries a grenade about 35m; the underhand lob is for shor
 
 Every gun, the three grenades and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18 and a C4 bundle). Each has two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knives and the molotov are still built in code.
 
-In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist): the right hand wraps the grip with the index finger on the trigger, and the left hand cradles the handguard with its thumb along the side. Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. Pistols are held one-handed. If the models can't load, the game falls back to its built-in guns and hands.
+In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist): the right hand wraps the grip with the index finger on the trigger, and the left hand cradles the handguard with its thumb along the side. Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. A wrist can't roll against the forearm without the skin pinching into a thin neck, so most of each hand's roll is carried by the forearm, as it is in a real arm. The knife is held in a fist, blade up. Pistols are held one-handed. If the models can't load, the game falls back to its built-in guns and hands.
 
 ### Skins and agents
 
@@ -90,7 +90,7 @@ In **Loadout & skins** you can give every gun and the knife one of 12 skins (the
 
 ### Friendly fire and teamkills
 
-With friendly fire on, your bullets, knife and grenades hurt teammates at half damage. Bots won't fire through a teammate who's in the way, but grenades and stray sprays can still cause accidents. **Kill a teammate** and you lose your guns and grenades on the spot and pay a $300 penalty. For the rest of that round and the next 2 rounds you have **only the knife**, can't buy and earn no money.
+Every living teammate has their name and a team-coloured marker above their head, dimmed when they're behind a wall, so a friend coming round a corner is easy to tell apart. With friendly fire on, your bullets, knife and grenades hurt teammates at half damage. Bots won't fire through a teammate who's in the way, but grenades and stray sprays can still cause accidents. **Kill a teammate** and you lose your guns and grenades on the spot and pay a $300 penalty. For the rest of that round and the next 2 rounds you have **only the knife**, can't buy and earn no money.
 
 ## Bots
 
@@ -110,7 +110,7 @@ Characters are real, fully textured and skinned models, one per outfit:
 | CT | SEAL | olive tactical gear, headset and sunglasses (`tactical.glb`) |
 
 They move with **motion capture**, from Mixamo's "Pro Rifle Pack":
-- Walking and running in 8 directions are blended by speed and direction, with the cycle length matched to the movement speed so feet don't slide.
+- Walking and running in 8 directions are blended by speed and direction. Walking cycles are matched to the movement speed so feet don't slide. The captured run is a quick jog, so at full speed the run cycle uses a longer stride (about 3 steps a second instead of 5) to keep the legs from looking frantic.
 - There are also an idle stance, a mid-air pose for jumps, and a kneel while planting or defusing.
 - The clips are stored as trajectories of the game's own joints (`assets/anims/locomotion.json`, 76 KB), not as bone rotations, so the same data drives every character regardless of how its skeleton is built.
 - The rifle pack's bladed stance is mostly turned back toward the aim. The direction clips are picked at a matching offset, so the feet still step along the real travel direction.
