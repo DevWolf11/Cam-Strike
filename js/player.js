@@ -4,6 +4,7 @@ import { input, consume } from './input.js';
 import { weaponMesh, MUZZLE, setViewmodelEnv, gunMeta } from './weapons3d.js';
 import { FPArms, armsReady, handSpec } from './fparms.js';
 import { armMesh } from './hands.js';
+import { sampleKnife, knifeClipLength } from './knifeanim.js';
 import { fabricTex } from './textures.js';
 import * as W from './world.js';
 import * as SFX from './audio.js';
@@ -26,14 +27,11 @@ export const VM = {
 
 // where the first-person arms' shoulders sit in view space: low and a little inward
 export const ARM_ANCHOR = { R: [0.2, -0.5, 0.12], L: [-0.18, -0.52, 0.05] };
-// Knife slashes: keyframes of the knife's offset from its idle pose, moved around the hand rather than
-// swinging the whole view (t, dx, dy, dz, rx, ry, rz). Swings alternate forehand and backhand.
-const SLASH = [
-  [[0, 0, 0, 0, 0, 0, 0], [0.16, 0.04, 0.045, 0.03, -0.3, -0.3, 0.4], [0.4, -0.17, 0.0, -0.08, 0.2, 0.6, -0.45],
-    [0.58, -0.21, -0.03, -0.05, 0.3, 0.7, -0.55], [1, 0, 0, 0, 0, 0, 0]],
-  [[0, 0, 0, 0, 0, 0, 0], [0.16, -0.08, 0.05, 0.02, -0.25, 0.45, -0.35], [0.4, 0.05, -0.01, -0.07, 0.25, -0.5, 0.45],
-    [0.58, 0.07, -0.04, -0.04, 0.3, -0.6, 0.5], [1, 0, 0, 0, 0, 0, 0]],
-];
+// Knife: the authored motion (knifeanim.js) placed in view space: o = where the idle knife's guard sits,
+// s = metres per model unit for the motion (smaller than the model's own scale: our arms are shorter),
+// tilt = a turn of the whole motion; each clip plays at its own rate (slashes fit the 0.4 s swing cycle)
+export const KNIFE = { o: [0.17, -0.11, -0.33], s: 0.0075, tilt: [0.4, 0.3, -0.3], rate: { idle: 1, slash1: 1.6, slash2: 1.6, draw: 1.4 }, blend: 0.07 };
+const _kp = { p: new THREE.Vector3(), q: new THREE.Quaternion() }, _kt = new THREE.Quaternion(), _ke = new THREE.Euler();
 // Grenade throw (the release happens at t = 0.71): wind up back past the shoulder, whip forward with the
 // arm extended toward the aim, follow through downward; the next grenade is then drawn
 const THROW = [[0, 0, 0, 0, 0, 0, 0], [0.3, 0.06, 0.06, 0.02, -0.45, 0.15, 0.25], [0.55, 0.02, 0.08, -0.02, -0.35, 0.05, 0.1],
@@ -131,8 +129,32 @@ export class PlayerController {
     this.muzzle.position.set(0, mz ? mz[0] : 0.06, mz ? -mz[1] : -(WEAPONS[gunId]?.len || 0.3) * 1.05);
     gun.add(this.muzzle);
     this.vmGun = gun; this.vmKind = kind; this.vmBase = P;
+    if (kind === 'knife') this.kAnim = { clip: 'draw', t: 0, blendT: 1, fromP: new THREE.Vector3(), fromQ: new THREE.Quaternion() };
     this.switchT = 0.35;
     if (a === this.game.player && !this.spec) SFX.draw(kind);
+  }
+
+  // Knife: play the authored clips. A new swing alternates the two slashes and blends in from wherever
+  // the knife is; a finished clip hands over to the looping idle (they meet at the same pose).
+  animKnife(a, dt) {
+    const K = this.kAnim, gun = this.vmGun, at = a.actionT || 0;
+    if (at > 0 && (!this.lastAct || at < this.lastAct)) {
+      this.slashN = (this.slashN || 0) + 1;
+      K.fromP.copy(gun.position); K.fromQ.copy(gun.quaternion); K.blendT = 0;
+      K.clip = this.slashN % 2 ? 'slash1' : 'slash2'; K.t = 0;
+    }
+    this.lastAct = at;
+    K.t += dt * KNIFE.rate[K.clip]; K.blendT += dt;
+    const len = knifeClipLength(K.clip);
+    if (K.clip !== 'idle' && K.t >= len) { K.t -= len; K.clip = 'idle'; }
+    sampleKnife(K.clip, K.clip === 'idle' ? K.t % knifeClipLength('idle') : K.t, _kp);
+    _kt.setFromEuler(_ke.set(...KNIFE.tilt));
+    gun.position.copy(_kp.p.applyQuaternion(_kt).multiplyScalar(KNIFE.s)).add(_hq.set(...KNIFE.o));
+    gun.quaternion.copy(_kt).multiply(_kp.q);
+    if (K.blendT < KNIFE.blend) {
+      const u = K.blendT / KNIFE.blend, e = u * u * (3 - 2 * u);
+      gun.position.lerpVectors(K.fromP, gun.position, e); gun.quaternion.slerpQuaternions(K.fromQ, gun.quaternion, e);
+    }
   }
 
   // Put the rigged arms' hands on the gun (targets are in the gun's own space, see handSpec)
@@ -310,8 +332,8 @@ export class PlayerController {
 
     let rotX = S.rec * 0.2 - S.swayY + dip * 0.012 * m, rotY = -S.swayX * 1.2 + sb * 0.008 * m, rotZ = S.lean + S.swayX * 0.6 + sb * 0.014 * m;
     let posX = S.swayX * 0.25 + inX, posY = S.land * 0.06 - S.swayY * 0.2 - m * 0.006 + airY, posZ = S.rec * 0.07 + inZ;
-    // draw: rises from below with a twist, eased out
-    if (this.switchT > 0) { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
+    // draw: rises from below with a twist, eased out (the knife has its own draw clip)
+    if (this.switchT > 0 && this.vmKind !== 'knife') { const e = this.switchT / 0.35, ee = e * e * (3 - 2 * e); posY -= ee * 0.35; rotX -= ee * 0.9; rotZ += ee * 0.5; }
     // reload sounds for your own reloads (other players' are played by the game, positioned)
     const rNow = a.reloadT > 0 ? 1 - a.reloadT / w.reload : 0;
     if (a === this.game.player && rNow > 0) reloadSounds(a, S.reloadR || 0, rNow, null);
@@ -332,15 +354,7 @@ export class PlayerController {
       this.vmGun.position.set(B.x + o[0], B.y + o[1], B.z + o[2]);
       this.vmGun.rotation.set((B.rx || 0) + o[3], (B.ry ?? 0.05) + o[4], (B.rz || 0) + o[5]);
     }
-    if (this.vmKind === 'knife') {
-      // a new swing starts: alternate forehand / backhand
-      const at = a.actionT || 0;
-      if (at > 0 && (!this.lastAct || at < this.lastAct)) this.slashN = (this.slashN || 0) + 1;
-      this.lastAct = at;
-      const o = at > 0 ? keyframes(SLASH[(this.slashN || 0) % 2], at, _ko) : _ko.fill(0), B = this.vmBase;
-      this.vmGun.position.set(B.x + o[0], B.y + o[1], B.z + o[2]);
-      this.vmGun.rotation.set((B.rx || 0) + o[3], (B.ry ?? 0.05) + o[4], (B.rz || 0) + o[5]);
-    }
+    if (this.vmKind === 'knife') this.animKnife(a, dt);
     if (this.vmKind === 'nade' && a.nades[a.nadeSel] <= 0 && !a.throwing) vm.visible = false;
     if (this.arms) this.poseArms(vm.visible);
     this.vmCamera.aspect = this.camera.aspect;

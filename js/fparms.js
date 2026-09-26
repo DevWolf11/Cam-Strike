@@ -269,8 +269,8 @@ export function handSpec(id, kind, meta, box) {
   if (kind === 'knife') {
     // the handle runs lengthwise behind the guard (+Z) and lies across the palm like a hammer grip:
     // knuckles toward the edge (-Y), palm against the handle's right side, thumb over the spine
-    const fwd = nrm([-0.25, -0.97, -0.24]), palm = [-1, 0, 0], C = [0, -0.002, 0.052];
-    R = { vol: [{ c: C, d: [0, 0, 1], e1: [1, 0, 0], e2: [0, 1, 0], a: 0.013, b: 0.018, h: 0.06 }],
+    const fwd = nrm([-0.25, -0.97, -0.24]), palm = [-1, 0, 0], C = [0, 0.002, 0.062];
+    R = { vol: [{ c: C, d: [0, 0, 1], e1: [1, 0, 0], e2: [0, 1, 0], a: 0.016, b: 0.018, h: 0.06 }],
       wrist: add(C, [0.045, 0, 0], mul(fwd, -0.06)), fwd, palm, pole: [0.3, -0.35, 0.25], fixed: { thumb: [0.7, 0.5, 0.3] } };   // thumb curled over the fingers by the guard
   } else if (kind === 'nade') {
     // a grenade sits upright in the fist, its body above the thumb

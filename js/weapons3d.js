@@ -444,6 +444,7 @@ export function weaponMesh(id, loadout = {}, mode = 'world') {
   let geos, skin = 'factory';
   if (id === 'knife') {
     const type = loadout.knifeType || 'classic'; skin = loadout.knifeSkin || 'factory';
+    if (type === 'classic' && hasModel('knife')) return modelMesh('knife', skin, mode);
     geos = cachedParts(`knife:${type}:${skin !== 'factory'}`, () => knifeParts(type, skin !== 'factory'));
   } else if (NADES.includes(id)) {
     geos = cachedParts(`nade:${id}`, () => nadeParts(id));
@@ -466,7 +467,8 @@ export function weaponMesh(id, loadout = {}, mode = 'world') {
 
 // ---------------- Real models ----------------
 // Converted from Sketchfab models (credits in the README): one mesh per material, metres,
-// origin = right-hand grip, barrel -Z, up +Y (grenades/C4: origin at the centre).
+// origin = right-hand grip, barrel -Z, up +Y (grenades/C4: origin at the centre; the knife: at the guard,
+// blade -Z, edge -Y).
 // Each has a detailed first-person version (vm) and a low-poly one for third person (w).
 const MODEL_IDS = ['rifle', 'smg', 'shotgun', 'sniper', 'pistol', 'he', 'flash', 'smoke', 'bomb'];
 // per gun, relative to the grip: muzzle [up, forward], left hand on the handguard [forward, height],
@@ -486,7 +488,14 @@ export function loadWeaponModels() {
     const one = (id, v) => loader.loadAsync(`assets/weapons/${id}${v === 'w' ? '_w' : ''}.glb`)
       .then((g) => { (models[id] || (models[id] = {}))[v] = prepModel(g.scene, v); })
       .catch((e) => console.warn(`Weapon model ${id}/${v} unavailable`, e));
-    modelsLoading = Promise.all(MODEL_IDS.flatMap((id) => [one(id, 'vm'), one(id, 'w')])).then(() => {
+    // the knife is small enough for one file: the same mesh in first and third person
+    const knife = loader.loadAsync('assets/weapons/knife.glb')
+      .then((g) => {
+        models.knife = { vm: prepModel(g.scene, 'vm') }; models.knife.w = prepModel(g.scene.clone(), 'w');
+        for (const v of ['vm', 'w']) models.knife[v].traverse((o) => { if (o.isMesh) o.material.userData.skinLift = 0.35; });   // blackened steel
+      })
+      .catch((e) => console.warn('Knife model unavailable', e));
+    modelsLoading = Promise.all([...MODEL_IDS.flatMap((id) => [one(id, 'vm'), one(id, 'w')]), knife]).then(() => {
       for (const id in MODEL_META) if (hasModel(id)) MUZZLE[id] = MODEL_META[id].muzzle;
     });
   }
@@ -522,7 +531,7 @@ function skinnedModelMaterial(base, skin, mode) {
   if (skinnedMats.has(key)) return skinnedMats.get(key);
   const m = base.clone();
   const tex = skinTex(skin); tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const gold = skin === 'gold';
+  const gold = skin === 'gold', lift = (base.userData.skinLift || 0).toFixed(2);   // (a near-black model needs a floor under the pattern)
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uSkin = { value: tex };
     sh.vertexShader = sh.vertexShader
@@ -532,12 +541,12 @@ function skinnedModelMaterial(base, skin, mode) {
         vec3 w3 = pow(abs(normalize(vSkNrm)), vec3(4.0)); w3 /= (w3.x + w3.y + w3.z);
         vec3 q = vSkPos * 7.0;
         vec3 pat = texture2D(uSkin, q.zy).rgb * w3.x + texture2D(uSkin, q.xz).rgb * w3.y + texture2D(uSkin, q.xy).rgb * w3.z;
-        float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        float lum = max(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)), LUM_MIN);
         float amt = SKIN_AMOUNT;
         diffuseColor.rgb = mix(diffuseColor.rgb, pat * (0.3 + lum * 1.8), amt);
         SKIN_EXTRA
       }`;
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform sampler2D uSkin; varying vec3 vSkPos; varying vec3 vSkNrm;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n#define LUM_MIN ' + lift + '\nuniform sampler2D uSkin; varying vec3 vSkPos; varying vec3 vSkNrm;');
     if (mode === 'vm') {
       // after the metalness map: paint goes on the body, bare steel keeps most of its look
       sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n' + blend
@@ -547,7 +556,7 @@ function skinnedModelMaterial(base, skin, mode) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n' + blend.replace('SKIN_AMOUNT', '0.9').replace('SKIN_EXTRA', ''));
     }
   };
-  m.customProgramCacheKey = () => 'skin-' + mode + (gold ? 'g' : '');
+  m.customProgramCacheKey = () => 'skin-' + mode + (gold ? 'g' : '') + lift;
   if (mode === 'vm') modelVmMats.add(m);
   skinnedMats.set(key, m);
   return m;
