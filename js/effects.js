@@ -1,7 +1,9 @@
 import * as THREE from '../lib/three.module.min.js';
 import { puffTex, flashTex, decalAtlas, radialTex } from './textures.js';
 import * as W from './world.js';
+import * as SFX from './audio.js';
 import { ragdollShot } from './character.js';
+import { Billboards, smokeAtlas, flameAtlas, fireballAtlas } from './particles.js';
 
 // Pooled short-lived visual effects. Everything is preallocated so combat never allocates
 // meshes or materials: sprites for flashes/smoke, two point clouds for sparks and debris,
@@ -67,6 +69,7 @@ class ParticleCloud {
 export class Effects {
   constructor(scene, camera = null, opts = {}) {
     this.scene = scene; this.camera = camera;
+    this.sound = opts.sound || null;          // (point, height) -> { dist, pan, occl } for positional sounds
     this.quality = opts.quality || 'medium';
     const T = opts.theme || {};
     this.dust = T.ground === 'concrete' ? 0xb8b8b0 : T.ground === 'cobble' ? 0xc4b294 : 0xd0b88a;
@@ -97,6 +100,13 @@ export class Effects {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
       s.visible = false; scene.add(s); this.fires.push({ obj: s, t: 0, life: 0, size: 0, vx: 0, vy: 0, vz: 0 });
     }
+    // textured billboards: lit smoke (depth-sorted), flame flipbook (additive), explosion fireballs
+    this.smokeB = new Billboards(scene, { tex: smokeAtlas(), grid: [2, 2], sort: true, max: 320, renderOrder: 3, near: 1.6 });
+    this.flameB = new Billboards(scene, { tex: flameAtlas(), grid: [4, 4], additive: true, max: 300, emissive: 1.1, renderOrder: 4 });
+    this.fireballB = new Billboards(scene, { tex: fireballAtlas(), grid: [4, 4], sort: true, max: 48, emissive: 1.5, renderOrder: 4 });
+    // flashbang burst: a big white glare
+    this.glare = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTex('rgba(255,255,255,1)', 'rgba(255,250,235,0)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.glare.visible = false; this.glare.renderOrder = 5; scene.add(this.glare); this.glareT = 0;
     this.sparks = new ParticleCloud(scene, 240, 0.07, true);
     this.chips = new ParticleCloud(scene, 200, 0.06, false);
 
@@ -142,7 +152,7 @@ export class Effects {
 
   // Compile every effect shader up front so the first gunshot or explosion doesn't hitch
   precompile(renderer, camera) {
-    const objs = [this.tracers[0].obj, this.puffs[0].obj, this.flashes[0].obj, this.fires[0].obj, this.sparks.pts, this.chips.pts, this.decals[0].im, this.casingMesh];
+    const objs = [this.tracers[0].obj, this.puffs[0].obj, this.flashes[0].obj, this.fires[0].obj, this.sparks.pts, this.chips.pts, this.decals[0].im, this.casingMesh, this.smokeB.mesh, this.flameB.mesh, this.fireballB.mesh];
     const was = objs.map((o) => o.visible), cnt = this.decals[0].im.count;
     objs.forEach((o) => { o.visible = true; });
     this.decals[0].im.count = 1;
@@ -183,6 +193,13 @@ export class Effects {
     this.light.position.copy(pos); this.light.intensity = intensity; this.lightT = t; this.lightI = intensity; this.lightDur = t;
   }
 
+  // A steady glow (a burning molotov) using the same light while no muzzle flash needs it; call every frame
+  glowLight(pos, intensity) {
+    if (!this.light || this.lightT > 0) return;
+    if (this.camera && this.camera.position.distanceToSquared(pos) > 1600) return;
+    this.light.position.copy(pos); this.light.intensity = intensity; this.glowT = 0.1;
+  }
+
   decal(cell, pos, normal, size, spin = Math.random() * 6.28) {
     const d = this.decals[cell];
     _q.setFromUnitVectors(_z, normal); _rq.setFromAxisAngle(_z, spin); _q.multiply(_rq);
@@ -207,7 +224,7 @@ export class Effects {
     c.p.copy(pos).addScaledVector(_v.set(rx, 0, rz), 0.05);
     c.v.set(rx * (1.6 + Math.random()) + Math.sin(yaw) * 0.4, 1.8 + Math.random(), rz * (1.6 + Math.random()) + Math.cos(yaw) * 0.4);
     c.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6); c.w.set(20 * Math.random(), 25, 15 * Math.random());
-    c.t = 4; c.rest = false;
+    c.t = 4; c.rest = false; c.tink = false;
   }
 
   // Bullet impact on the map (kind = surface code)
@@ -244,9 +261,27 @@ export class Effects {
 
   // Everything a gunshot draws. ends: [[x, y, z, kind], ...]
   shot(muzzle, weaponId, ends, shooter = null, local = false) {
+    let sounds = weaponId === 'shotgun' ? 2 : 1, whizzed = local;
     for (const [x, y, z, kind] of ends) {
       const end = new THREE.Vector3(x, y, z);
       this.tracer(muzzle, end);
+      if (this.sound && this.camera && kind && sounds > 0) {
+        // the impact itself, heard where it lands (a shotgun blast gets two, not nine)
+        const c = this.camera.position;
+        if (Math.hypot(x - c.x, z - c.z) < 40) { sounds--; SFX.impact(kind === 1 ? 'body' : 'hard', this.sound(end, 0)); }
+      }
+      if (!whizzed && this.camera) {
+        // a bullet passing within a metre and a half of your head
+        const c = this.camera.position, d = _v.subVectors(end, muzzle), L = d.length();
+        if (L > 3) {
+          d.divideScalar(L);
+          const t = _s.subVectors(c, muzzle).dot(d);
+          if (t > 3 && t < L) {
+            const px = muzzle.x + d.x * t - c.x, py = muzzle.y + d.y * t - c.y, pz = muzzle.z + d.z * t - c.z;
+            if (px * px + py * py + pz * pz < 2.2) { whizzed = true; const s = this.sound ? this.sound(end, 0) : null; SFX.whiz(s ? s.pan : 0); }
+          }
+        }
+      }
       if (kind === 1) this.blood(end, _n.subVectors(end, muzzle).normalize().clone(), weaponId === 'sniper' || weaponId === 'shotgun');
       else if (kind) this.impact(end, kind, weaponId === 'sniper');
       if (kind !== 1) ragdollShot(muzzle, end, weaponId === 'sniper' ? 5 : weaponId === 'shotgun' ? 2.5 : 1.6);   // shots jolt bodies they pass through
@@ -258,18 +293,54 @@ export class Effects {
     if (shooter && weaponId !== 'shotgun') this.casing(local && this.camera ? _v.copy(this.camera.position).addScaledVector(_s.set(0, -0.25, 0), 1) : muzzle, shooter.yaw);
   }
 
+  // A lit smoke puff (grenade smoke, explosion smoke, dust): p as for Billboards.spawn, colour as hex
+  smokePuff(p, hex = 0xd8d8d4) {
+    const c = new THREE.Color(hex);
+    return this.smokeB.spawn(Object.assign({ frame0: Math.floor(Math.random() * 4), color: [c.r, c.g, c.b], spin: (Math.random() - 0.5) * 0.3 }, p));
+  }
+  flame(p) { return this.flameB.spawn(Object.assign({ aspect: 2, anim: 15, frame0: 0, rot: (Math.random() - 0.5) * 0.25 }, p)); }
+  clearParticles() { this.smokeB.clear(); this.flameB.clear(); this.fireballB.clear(); }
+
+  // Flashbang: a white glare that swells and vanishes in a blink, a hard light, sparks and a wisp of smoke
+  flashBurst(pos) {
+    this.glare.position.copy(pos); this.glare.visible = true; this.glareT = 0.22;
+    this.flash(pos, 5, 0.12);
+    this.pointLight(pos, 60, 0.3);
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * 6.28, up = Math.random();
+      this.sparks.emit(pos.x, pos.y, pos.z, Math.cos(a) * (3 + Math.random() * 6), 1 + up * 5, Math.sin(a) * (3 + Math.random() * 6), 0.3 + Math.random() * 0.4, 1, 0.95, 0.8);
+    }
+    this.smokePuff({ x: pos.x, y: pos.y + 0.3, z: pos.z, vy: 0.5, drag: 0.5, size: 0.8, grow: 1.4, life: 2.6, alpha: 0.55, fadeIn: 0.05, fadeOut: 1.6 }, 0xeeeeea);
+  }
+
+  // Explosion (HE grenade scale ~0.55, the bomb 1): white flash, a churning fireball that cools into sooty
+  // smoke rising in a column, a ring of dust rolling out along the ground, sparks, debris and a scorch
   explode(pos, scale = 1) {
     this.flash(pos, 9 * scale, 0.12);
-    this.pointLight(pos, 30 * scale, 0.35);
-    for (let i = 0; i < 9; i++) {
-      const f = this.fires[this.bi++ % this.fires.length];
-      f.obj.position.copy(pos).add(_v.set((Math.random() - 0.5) * 2 * scale, Math.random() * 1.2 * scale, (Math.random() - 0.5) * 2 * scale));
-      f.vx = (Math.random() - 0.5) * 6 * scale; f.vy = (1 + Math.random() * 3) * scale; f.vz = (Math.random() - 0.5) * 6 * scale;
-      f.size = (3 + Math.random() * 3) * scale; f.t = f.life = 0.45 + Math.random() * 0.25; f.obj.visible = true;
+    this.pointLight(pos, 30 * scale, 0.45);
+    const gy = W.groundAt(pos.x, pos.z, 0.05), ground = pos.y - gy < 2.5;
+    // fireball: a cluster of flipbook balls, the first ones hottest and biggest
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * 6.283, r = Math.random() * 1.1 * scale;
+      this.fireballB.spawn({ x: pos.x + Math.cos(a) * r, y: pos.y + 0.3 * scale + Math.random() * 1.2 * scale, z: pos.z + Math.sin(a) * r,
+        vx: Math.cos(a) * 2.5 * scale, vy: (1.2 + Math.random() * 1.5) * scale, vz: Math.sin(a) * 2.5 * scale, drag: 2.5, lift: 1.5,
+        size: (2.2 + Math.random() * 1.6) * scale * 1.6, grow: 3.2 * scale, life: 0.75 + Math.random() * 0.35, delay: i * 0.025,
+        anim: 15, fadeIn: 0.03, fadeOut: 0.35, spin: (Math.random() - 0.5) * 1.2 });
     }
-    for (let i = 0; i < 14; i++) {
-      const p = _v.set(pos.x + (Math.random() - 0.5) * 4 * scale, pos.y + Math.random() * 3 * scale, pos.z + (Math.random() - 0.5) * 4 * scale);
-      this.puff(p, i % 3 ? 0x4a4642 : 0x7a6a58, (2.4 + Math.random() * 1.6) * scale * 1.4, 2.4 + Math.random() * 1.4, 1.1, 0.75, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5);
+    // smoke column: dark, rising, spreading
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * 6.283, r = Math.random() * 1.4 * scale, v = 0.3 + Math.random() * 0.4;
+      this.smokePuff({ x: pos.x + Math.cos(a) * r, y: pos.y + (0.5 + Math.random() * 2) * scale, z: pos.z + Math.sin(a) * r,
+        vx: Math.cos(a) * v, vy: (1.2 + Math.random() * 1.6) * scale, vz: Math.sin(a) * v, drag: 0.6, lift: 0.25,
+        size: (2 + Math.random() * 1.5) * scale * 1.5, grow: (1.4 + Math.random()) * scale, life: 2.8 + Math.random() * 1.6, delay: 0.12 + Math.random() * 0.25,
+        alpha: 0.7, fadeIn: 0.4, fadeOut: 1.8 }, [0x6a6259, 0x5a534c, 0x7a7066][i % 3]);
+    }
+    // dust rolling out along the ground
+    if (ground) for (let i = 0; i < 14; i++) {
+      const a = i / 14 * 6.283 + Math.random() * 0.4, v = (6 + Math.random() * 4) * scale;
+      this.smokePuff({ x: pos.x + Math.cos(a) * 0.8 * scale, y: gy + 0.5 * scale, z: pos.z + Math.sin(a) * 0.8 * scale,
+        vx: Math.cos(a) * v, vy: 0.3, vz: Math.sin(a) * v, drag: 2.8, lift: 0.1, collide: (x, y, z) => W.pointBlocked(x, y, z),
+        size: 1.6 * scale * 1.5, grow: 1.6 * scale, life: 1.8 + Math.random(), delay: 0.03, alpha: 0.7, fadeIn: 0.08, fadeOut: 1.2 }, this.dust);
     }
     for (let i = 0; i < 60; i++) {
       const a = Math.random() * 6.28, up = Math.random();
@@ -280,8 +351,7 @@ export class Effects {
       const a = Math.random() * 6.28;
       this.chips.emit(pos.x, pos.y, pos.z, Math.cos(a) * 6 * scale, (3 + Math.random() * 6) * scale, Math.sin(a) * 6 * scale, 0.9 + Math.random() * 0.5, dc.r * 0.55, dc.g * 0.55, dc.b * 0.55);
     }
-    const gy = W.groundAt(pos.x, pos.z, 0.05);
-    if (pos.y - gy < 2.5) this.decal(3, _v.set(pos.x, gy, pos.z), _n.set(0, 1, 0), 3.5 * Math.max(0.6, scale));
+    if (ground) this.decal(3, _v.set(pos.x, gy, pos.z), _n.set(0, 1, 0), 3.5 * Math.max(0.6, scale));
     if (this.camera) {
       const d = this.camera.position.distanceTo(pos);
       this.shake = Math.max(this.shake, Math.min(1, (scale * 22) / (d + 4) - 0.1));
@@ -289,6 +359,13 @@ export class Effects {
   }
 
   update(dt) {
+    this.smokeB.update(dt, this.camera); this.flameB.update(dt, this.camera); this.fireballB.update(dt, this.camera);
+    if (this.glareT > 0) {
+      this.glareT -= dt;
+      const k = Math.max(0, this.glareT / 0.22);
+      this.glare.scale.setScalar(4 + (1 - k) * 10); this.glare.material.opacity = Math.min(1, k * 1.6);
+      if (this.glareT <= 0) this.glare.visible = false;
+    }
     for (const t of this.tracers) if (t.obj.visible) {
       t.t -= dt; t.obj.material.opacity = Math.max(0, t.t / 0.06) * 0.9;
       if (t.t <= 0) t.obj.visible = false;
@@ -320,6 +397,9 @@ export class Effects {
     if (this.light && this.lightT > 0) {
       this.lightT -= dt;
       this.light.intensity = Math.max(0, this.lightT / this.lightDur) * this.lightI;
+    } else if (this.light && this.glowT > 0) {
+      this.glowT -= dt;
+      if (this.glowT <= 0) this.light.intensity = 0;
     }
     // casings
     let moved = false;
@@ -336,7 +416,10 @@ export class Effects {
         if (c.p.y < gy) {
           c.p.y = gy;
           if (Math.abs(c.v.y) < 1) { c.rest = true; c.r.x = Math.PI / 2; c.r.z = 0; }
-          else { c.v.y *= -0.35; c.v.x *= 0.5; c.v.z *= 0.5; c.w.multiplyScalar(0.5); }
+          else {
+            if (!c.tink && this.sound) { c.tink = true; SFX.casing(this.sound(c.p, 0)); }
+            c.v.y *= -0.35; c.v.x *= 0.5; c.v.z *= 0.5; c.w.multiplyScalar(0.5);
+          }
         }
       }
       _q.setFromEuler(c.r);

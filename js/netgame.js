@@ -49,7 +49,6 @@ export class ClientGame extends Game {
     const inv = a.inv[a.weapon], w = a.w;
     if (!inv || a.reloadT > 0 || inv.mag >= w.mag || inv.reserve <= 0) return false;
     a.reloadT = w.reload; a.scoped = false;
-    SFX.reload();
     this.net.send({ t: 'act', a: 'reload' });
     return true;
   }
@@ -97,6 +96,7 @@ export class ClientGame extends Game {
     a.sprayIdx++; a.lastShot = this.time;
     this.effects.shot(muzzle, w.id, ends, a, true);
     SFX.gunshot(w.id, 0, 0);
+    SFX.afterShot(w.id);
     this.emit('shot', { agent: a, hit: false });
     if (inv.mag === 0 && inv.reserve > 0) a.autoReload = 0.25;
     return true;
@@ -156,7 +156,7 @@ export class ClientGame extends Game {
       a.speed += (Math.min(sp, 7) - a.speed) * Math.min(1, dt * 10);
       a.moving = Math.max(0, Math.min(1, (a.speed - 1.4) / 3.6));
       a.stepAcc += a.speed * dt;
-      if (a.stepAcc > 2.3) { a.stepAcc = 0; if (a.speed > 3.2) { const s = this.soundFrom(a.pos); if (s.dist < 18) SFX.step(0.18 / (1 + s.dist * 0.25), s.pan); } }
+      if (a.stepAcc > 2.3) { a.stepAcc = 0; if (a.speed > 3.2) { const s = this.soundFrom(a.pos, 0.2); if (s.dist < 28) SFX.step(0.13, s.pan, s); } }
     }
     this.useHeld = this.useFrame; this.useFrame = false;
 
@@ -225,6 +225,7 @@ export class ClientGame extends Game {
         this.round = e.round; this.phase = 'freeze'; this.timer = this.rules.freezeTime;
         this.grenades.clear();
         this.effects.clearDecals();
+        this.effects.clearParticles();
         for (const [nid, x, y, z, yaw, seq] of e.sp) {
           const a = this.agents[nid];
           a.resetForRound({ x, y, z }, yaw);
@@ -262,12 +263,13 @@ export class ClientGame extends Game {
         const m = new THREE.Vector3(e.m[0], e.m[1], e.m[2]);
         this.effects.shot(m, e.w, e.e2, a, false);
         a.char.kick = 1;
-        const s = this.soundFrom(a.pos);
-        SFX.gunshot(e.w, s.dist, s.pan);
+        const s = this.soundFrom(a.pos, 1.5);
+        SFX.gunshot(e.w, s.dist, s.pan, s.occl);
+        if (s.dist < 15) SFX.afterShot(e.w, s);
         a.spotted = Math.max(a.spotted, 1.2);
         break;
       }
-      case 'fm': { const a = A(e.nid); if (a && a !== p) { a.actionT = 0.001; if (this.soundFrom(a.pos).dist < 12) SFX.knifeSwing(); } break; }
+      case 'fm': { const a = A(e.nid); if (a && a !== p) { a.actionT = 0.001; const s = this.soundFrom(a.pos, 1.3); if (s.dist < 14) SFX.knifeSwing(s); } break; }
       case 'fd': this.grenades.fx(e.type, e.x, e.y, e.z); break;
       case 'fl': if (e.nid === p.nid) { p.blindT = Math.max(p.blindT || 0, e.t); SFX.ringing(e.t); } break;
       case 'pl': SFX.plantDone(); this.emit('planted', { site: e.site }); this.bomb.timer = this.rules.bombTimer; break;
@@ -275,7 +277,7 @@ export class ClientGame extends Game {
         this.bombMesh.visible = false;
         this.effects.explode(new THREE.Vector3(this.bomb.pos.x, this.bomb.pos.y + 1, this.bomb.pos.z));
         ragdollBlast(this.bomb.pos.x, this.bomb.pos.y + 0.5, this.bomb.pos.z, 22, 11);
-        SFX.explosion(this.soundFrom(this.bomb.pos).dist);
+        { const sb = this.soundFrom(this.bomb.pos, 0.5); SFX.explosion(sb.dist, sb.pan); }
         this.bomb.state = 'exploded';
         break;
       }

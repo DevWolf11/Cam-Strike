@@ -47,7 +47,12 @@ Everything is generated in code, with no image files: textures are painted onto 
 
 - **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves), a sky dome with drifting clouds and a sun glow, a distant skyline for each map (desert town, industrial yard, power plant), filmic tone mapping and ambient occlusion baked into the map.
 - **Materials:** 512px textures with matching bump maps, so mortar lines, cobbles, planks and corrugated metal catch the light. Walls have a stone base band, and the maps carry posters, graffiti, drainpipes, AC units and rubble.
-- **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, starburst muzzle flashes that light up nearby walls, layered explosions (flash, fireball, smoke, sparks) with camera shake, smoke clouds, and molotovs that give off smoke and embers.
+- **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, and starburst muzzle flashes that light up nearby walls. Smoke, fire and explosions are camera-facing billboards drawn in one batch per kind, with their textures generated from noise when the match loads:
+  - **Smoke grenades** vent for about a second and a half. Lit, lumpy puffs burst out of the canister, slow down, pile up against walls and fill the space: a dome about 4 m wide and 5 m tall, the same size as the cloud that blocks sight. If you stand inside, the view greys out, but not your own gun.
+  - **HE grenades and the bomb** explode as a white flash, then a churning fireball (an animated flipbook going from white-hot to orange to soot). The fireball cools into grey-brown smoke that rises and spreads, while a ring of dust rolls out along the ground, and sparks, debris, a scorch mark and camera shake follow.
+  - **Molotovs** splash, then a burning pool spreads from where the bottle broke. Flame tongues and low flames keep springing up across it, with a flickering orange glow that lights the walls, dark smoke, embers and a charred patch. Smoke puts it out.
+  - **Flashbangs** give a white glare that swells and vanishes in a blink, a hard light on everything around, sparks and a wisp of smoke.
+  - Thrown grenades tumble in the air and roll to a stop.
 - **Weapons:** every gun is modelled from real-style side profiles with rounded edges and turned barrels. That means a stamped receiver with rivets and a curved 30-round magazine on the AR-47, a roller-lock SMG with an integral suppressor, a pump shotgun with a vent rib, a thumbhole sniper with a turreted scope, and a pistol with slide serrations. Knives and grenades get the same treatment. In first person, steel, wood and polymer use physically based materials that reflect the map's sky, and your hands have real fingers wrapped around the grip and handguard.
 - **Animation:**
   - Your gun sways behind your aim, kicks back with spring recoil, rises when drawn, tilts and slaps in a new magazine when reloading, dips when you land, trails your jumps, and bobs in a figure-8 in step with your footsteps. Every motion is spring-based and frame-rate independent, so it feels the same at 30 and 60 fps.
@@ -80,9 +85,11 @@ A full-strength throw carries a grenade about 35m; the underhand lob is for shor
 
 ### Weapon models and first-person arms
 
-Every gun, the three grenades and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18 and a C4 bundle). Each has two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knives and the molotov are still built in code.
+Every gun, all four grenades, the classic knife and the C4 are real textured 3D models (MP5SD, Remington 870, AK-47, AWP-style bolt rifle, Glock 17, M67, M84, M18, a bottle molotov, an M9-style bayonet and a C4 bundle). The guns, grenades and C4 each have two versions: a detailed one with physically based materials for first person, and a low-poly one (a few thousand triangles, one small texture) that characters carry, that lies on the ground and that you see flying through the air. The knife and molotov are small enough to use one model for both. The molotov's rag burns in your hand and trails flames in flight. The Karambit, Butterfly and Bayonet knife styles are still built in code.
 
-In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist): the right hand wraps the grip with the index finger on the trigger, and the left hand cradles the handguard with its thumb along the side. Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. A wrist can't roll against the forearm without the skin pinching into a thin neck, so most of each hand's roll is carried by the forearm, as it is in a real arm. The knife is held in a fist, blade up. Pistols are held one-handed. If the models can't load, the game falls back to its built-in guns and hands.
+In first person you hold them with a pair of rigged arms. Each frame, both hands are placed on the gun with two-bone IK (shoulder, elbow, wrist). Because the hand targets are attached to the gun, the hands follow every sway, recoil kick, reload tilt and knife swing. A wrist can't roll against the forearm without the skin pinching into a thin neck, so most of each hand's roll is carried by the forearm, as it is in a real arm.
+
+The grips are fitted to each model rather than posed by hand. The pistol grips and handguards were measured from the models (their cross-sections, as solid ellipses). When you draw a weapon, each hand slides along its palm until the palm rests on the grip, then every finger closes joint by joint until it touches: the whole finger curls together first, as a real hand closes, then the outer joints keep wrapping. So the right hand wraps the pistol grip with the index finger on the trigger, the left hand cradles the handguard from below with its fingers up the far side, and the pistol is held two-handed in a thumbs-forward grip, with the support hand wrapped around the shooting hand. The knife sits in a hammer grip, knuckles toward the edge. Its idle, draw and two slashes are motion-captured from an animated knife model: the knife's path is replayed in view space and our own arms grip and follow it, so they match every other weapon. Swings alternate the two slashes, and a new swing blends in from wherever the knife is. Grenades sit in the fist with the thumb over the spoon. The throw winds up, whips forward, follows through, and then the next grenade is drawn. If the models can't load, the game falls back to its built-in guns and hands.
 
 ### Skins and agents
 
@@ -131,6 +138,16 @@ On death they become **ragdolls** (verlet physics). A body falls with the force 
 - bodies pile on top of each other;
 - living players shove bodies aside as they walk through them;
 - explosions throw bodies, and bullets passing through a body jolt it.
+
+## Sound
+
+The game uses real recordings, all public domain (CC0). They are cut, cleaned (rumble filtered, faded, levelled) and packed into one 440 KB file (`assets/audio/sfx.mp3`, with offsets in `sfx.json`), which loads with the game:
+
+- **Guns:** each gun has its own shots, two recordings each, picked at random with slight pitch changes so sprays don't sound mechanical: a 9 mm Glock, a suppressed H&K for the integrally suppressed SMG, a Mossberg pump shotgun, an AK and a big bolt-action rifle. The shotgun pumps and the sniper works its bolt after every shot.
+- **Handling:** reloads play in steps that line up with the reload animation: magazine out, magazine in, then the bolt or slide, or shells one at a time and then the pump. There's also a dry-fire click, a draw sound, knife slashes, stabs and scrapes, a grenade pin, the throw, and metal clinks when a grenade bounces.
+- **World:** footsteps, landing, bullet impacts and the odd ricochet, shell casings tinkling on the floor, and bullets whizzing past your head. The HE blast has a low thump, the flashbang has a sharp crack followed by an ear-ringing tone and muffled hearing, the smoke grenade hisses, and the molotov has glass breaking, then a whoosh and the roar of the fire for as long as it burns. The bomb's blast is the biggest of all.
+- **Mixing:** far sounds get quieter and duller, and more of them is reverb (a generated room echo). Sounds behind walls are muffled, left and right are panned, a compressor keeps many overlapping shots from clipping, and a voice limit drops the quietest sounds first when it gets busy. Other players' reloads and footsteps are audible nearby, like in CS.
+- **Beeps:** the bomb beep, round jingles and hit markers are synthesized. If the sound file can't load, a small synthesizer plays every sound instead.
 
 ## Controls
 
@@ -185,7 +202,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
 | `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
 | `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |
-| `js/weapons3d.js` | Loads the gun, grenade and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/weapons3d.js` | Loads the gun, grenade, knife and C4 models (built-in fallbacks), knives, weapon skins |
+| `js/knifeanim.js` | The knife's first-person idle, slash and draw motion (sampled from the animated knife model) |
 | `js/fparms.js` | Rigged first-person arms: IK hand placement on each gun, finger grips |
 | `js/agent.js` | Per-player state: inventory, health and money |
 | `js/player.js` | First-person camera, movement, viewmodels, aim assist, spectating |
@@ -193,7 +211,8 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/net.js` | Online play: host and client over PeerJS, lobby, snapshots, events, pings |
 | `js/netgame.js` | A friend's copy of the match: local prediction, interpolation, applying host snapshots and events |
 | `js/effects.js` | Pooled effects: tracers, muzzle flashes and light, impact sparks and debris, bullet-hole/blood/scorch decals, shell casings, explosions, dust motes, camera shake |
-| `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input, synthesized sounds |
+| `js/input.js`, `js/audio.js` | Touch/keyboard/mouse input; sound (sprite loading, distance, walls, reverb, mixing) |
+| `js/particles.js` | Billboard particles (smoke, flames, fireballs) and their generated textures |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
 
 three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models and the locomotion animations (Pro Rifle Pack) come from Adobe Mixamo. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
@@ -217,3 +236,13 @@ Weapon and first-person arm models, converted and optimised for the game (`asset
 - Smoke grenade: ["M18 Smoke Grenade"](https://skfb.ly/6Soqp) by Vanillatography
 - C4: ["Simple C4- Bomb"](https://skfb.ly/6zLxq) by Blender3D
 - First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen
+- Classic knife and its motion: ["knife Animated"](https://skfb.ly/6XZJB) by DJMaesen (the knife mesh and the knife's path through the idle, slash and draw clips; the model's own arms aren't used)
+- Molotov: ["Molotov Cocktail"](https://sketchfab.com/3d-models/molotov-cocktail-e57a0fd669974a3dab7d3919bda9032c) by LiliumLetifer (the bottle's brand label was painted out and the model's flame sprites were left out; the flames are the game's own)
+
+Sound effects, all CC0 (public domain), from [Freesound](https://freesound.org) and [Kenney](https://kenney.nl):
+- **Gunshots:** "9mm pistol shot" by michorvath, "Glock 19X" and "Heckler & Koch MP7 Suppressed" by areniporgen, "silenced pistol shot" by Clutvh, "Mossberg 500A - 1 shot and pump" by AnthonyChan0, "shotgun shoot" by MrGungus, two AK-47 recordings by serøutōnin--deprivəd, "FPS Sniper Shot" by qubodup, "Rifle Gun Shot 02" by LilMati.
+- **Handling:** "Assault Rifle Reload" by qubodup, "pistol reload sound" by GFL7, "shell load" by CeebFrack, "SXP_SHOTGUN_RACK_01" by dasBUTCHER84, "22 Bolt" by Danwardvs, "9mm Handgun Being Dry Fired" by serøutōnin--deprivəd, "Unholster Gun" by qubodup.
+- **Knife:** "Clean fast Swoosh" by Danjocross, "FX - Swoosh - Knife (High Pitch)" by bolkmar, "Large Swede Stab with Whoosh" by minituffy.
+- **Grenades and fire:** "Grenade Explosion SFX" by unfa, "CTS 7290" (flashbang) by areniporgen, "Gas Grenade" by Themiwa100, "Breaking Glass #3" by abstraktgeneriert, "Flame Burst" and "Flame Loop" by magnuswaker, "low mid afar explosion 1" by Logicogonist.
+- **World:** "bullet ricochet" by aust_paul, ".30 Shell Bouncing" by Danwardvs, "Fly-by whiz SFX" by modusmogulus, "FPS Footsteps Loop" by qubodup, "jump_land" by nhill2003, "Videogame Menu BUTTON CLICK" by Christopherderp.
+- **Kenney packs:** "Impact Sounds" and "RPG Audio" (metal clinks, body hits, the grenade pin and the knife draw).

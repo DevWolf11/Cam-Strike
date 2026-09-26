@@ -84,6 +84,8 @@ export class FPArms {
         arm: { q: Q(`${s}_arm`), inv: frameInv(_b.subVectors(el, sh), pole) },
         elbow: { q: Q(`${s}_elbow`), inv: frameInv(_b.subVectors(wr, el), pole) },
         wrist: { q: Q(`${s}_wrist`), inv: frameInv(hf, palm) },
+        thumb: { q: Q(`${s}_thumb1`), inv: frameInv(P(`${s}_thumb2`).sub(P(`${s}_thumb1`)), palm) },
+        point: { q: Q(`${s}_point1`), inv: frameInv(P(`${s}_point2`).sub(P(`${s}_point1`)), palm) },
         curl,
       };
     }
@@ -100,8 +102,10 @@ export class FPArms {
   }
 
   // Put one hand: wrist at `wrist`, hand pointing `fwd` with the palm facing `palm` (all view space),
-  // elbow bending toward `pole`, fingers curled by curl(finger, joint) radians
-  hand(s, wrist, fwd, palm, pole, curl) {
+  // elbow bending toward `pole`, fingers curled by curl(finger, joint) radians; thumbDir and pointDir
+  // (optional) point the thumb's or index finger's base joint in a given direction, its pad facing the
+  // same way as the palm
+  hand(s, wrist, fwd, palm, pole, curl, thumbDir, pointDir) {
     const R = this.rest[s], b = this.b;
     const A = this.anchor ? _hs.set(...this.anchor[s]) : R.sh, [l1, l2] = R.len;
     const toT = _c.subVectors(wrist, A);
@@ -123,6 +127,146 @@ export class FPArms {
     this.aim(b[`${s}_wrist`], R.wrist, fwd, palm);
     this.spreadTwist(b[`${s}_elbow`], b[`${s}_wrist`], this.rl[`${s}_wrist`]);
     for (const c of R.curl) { c.bone.quaternion.copy(c.rest); const ang = curl(c.f, c.k); if (ang) c.bone.rotateOnAxis(c.axis, ang); }
+    if (thumbDir) this.aim(b[`${s}_thumb1`], R.thumb, thumbDir, palm);
+    if (pointDir) this.aim(b[`${s}_point1`], R.point, pointDir, palm);
+  }
+
+  // The other hand as capsules (finger segments, palm), world space: so one hand can wrap the other
+  capsules(s) {
+    const out = [], P = (n) => this.b[n].getWorldPosition(new THREE.Vector3());
+    for (const f of FINGERS) for (let k = 1; k <= 3; k++) {
+      const a = this.b[`${s}_${f}${k}`], b = this.b[`${s}_${f}${k + 1}`];
+      if (a && b) out.push({ p: P(`${s}_${f}${k}`), q: P(`${s}_${f}${k + 1}`), r: f === 'thumb' ? 0.0095 : 0.0085 });
+    }
+    const w = P(`${s}_wrist`);
+    for (const f of ['point1', 'middle1', 'ring1', 'pink1']) out.push({ p: w, q: P(`${s}_${f}`), r: 0.014 });
+    return out;
+  }
+
+  // A finger with a set place to rest (the trigger finger): search its joint angles for the pose that puts
+  // the fingertip's pad on the target (gun space), without the finger reaching more than a centimetre past
+  // it to the left (it must go into the trigger guard, not through and out the far side). Coarse grid, then refined.
+  reach(s, f, chain, set, T, M, from = 0) {
+    const Mi = M.clone().invert(), tip = this.b[`${s}_${f}4`], G = (b) => b.getWorldPosition(new THREE.Vector3()).applyMatrix4(Mi);
+    const err = (a) => {
+      a.forEach((x, i) => { if (i >= from) set(i, x); });
+      const p3 = G(chain[2].bone), p4 = G(tip), pad = p3.clone().lerp(p4, 0.6);
+      return pad.distanceTo(T) + (Math.max(0, T.x - 0.01 - p3.x) + Math.max(0, T.x - 0.01 - p4.x)) * 3;
+    };
+    const HI = [1.6, 1.8, 1.3];                            // joint limits
+    let best = [0, 0, 0], be = err(best);
+    for (let a = 0; a <= (from ? 0 : HI[0]); a += 0.1) for (let b = 0; b <= HI[1]; b += 0.2) for (let c = 0; c <= HI[2]; c += 0.26) {
+      const e = err([a, b, c]); if (e < be) { be = e; best = [a, b, c]; }
+    }
+    for (const st of [0.05, 0.02, 0.01]) {
+      for (let improved = true; improved;) {
+        improved = false;
+        for (let i = from; i < 3; i++) for (const sg of [-1, 1]) {
+          const t = best.slice(); t[i] = Math.min(HI[i], Math.max(0, t[i] + sg * st)); const e = err(t);
+          if (e < be - 1e-5) { be = e; best = t; improved = true; }
+        }
+      }
+    }
+    best.forEach((x, i) => { if (i >= from) set(i, x); });
+    this.reachErr = be;
+    return best.map((x) => +x.toFixed(3));
+  }
+
+  // Fit a hand to the gun: slide it along its palm normal until the palm rests on the grip, then close
+  // each finger joint (base to tip) until that part of the finger touches the grip. The grip is described
+  // by solid elliptic cylinders measured from the model (h.vol, gun space), so contact is exact and cheap.
+  // The hand's pose relative to the gun never changes, so this runs once per weapon draw.
+  fit(s, h, M) {
+    const caps = h.avoid ? this.capsules(h.avoid) : [];
+    const vols = h.vol.map((v) => ({ c: new THREE.Vector3(...v.c).applyMatrix4(M), d: new THREE.Vector3(...v.d).transformDirection(M),
+      e1: new THREE.Vector3(...v.e1).transformDirection(M), e2: new THREE.Vector3(...v.e2).transformDirection(M), a: v.a, b: v.b, h: v.h }));
+    const q = new THREE.Vector3();
+    const q2 = new THREE.Vector3();
+    const inside = (p, r) => vols.some((v) => {
+      q.subVectors(p, v.c);
+      if (Math.abs(q.dot(v.d)) > v.h + r) return false;
+      const u = q.dot(v.e1) / (v.a + r), w = q.dot(v.e2) / (v.b + r);
+      return u * u + w * w < 1;
+    }) || caps.some((c) => {
+      q.subVectors(c.q, c.p); q2.subVectors(p, c.p);
+      const t = Math.max(0, Math.min(1, q2.dot(q) / Math.max(1e-9, q.lengthSq())));
+      return q2.addScaledVector(q, -t).lengthSq() < (c.r + r) * (c.r + r);
+    });
+    const fwdW = new THREE.Vector3(...h.fwd).transformDirection(M), palmW = new THREE.Vector3(...h.palm).transformDirection(M);
+    const thumbW = h.thumbDir ? new THREE.Vector3(...h.thumbDir).transformDirection(M) : undefined;
+    const P = (n) => this.b[n].getWorldPosition(new THREE.Vector3());
+    const pose = () => {
+      const w = new THREE.Vector3(...h.wrist).applyMatrix4(M);
+      this.hand(s, w, fwdW, palmW, w.clone().add(new THREE.Vector3(...h.pole)), (f, k) => h.fixed?.[f]?.[k - 1] ?? h.start?.[f]?.[k - 1] ?? 0, thumbW,
+        h.pointDir && new THREE.Vector3(...h.pointDir).transformDirection(M));
+      this.b[`${s}_wrist`].updateWorldMatrix(false, true);
+    };
+    // palm contact (the palm's skin is ~1.2 cm in front of the hand bones)
+    pose();
+    const pc = P(`${s}_wrist`).lerp(P(`${s}_middle1`).add(P(`${s}_ring1`)).multiplyScalar(0.5), 0.6).addScaledVector(palmW, 0.012);
+    const at = (d) => pc.clone().addScaledVector(palmW, d);
+    let d = 0;
+    if (inside(pc, 0.002)) { while (d > -0.1 && inside(at(d), 0.002)) d -= 0.002; }
+    else { while (d < 0.1 && !inside(at(d + 0.002), 0.002)) d += 0.002; if (d >= 0.1) d = 0; }
+    h.wrist = h.wrist.map((x, i) => x + h.palm[i] * d);
+    pose();
+    const R = this.rest[s], curls = {};
+    const chainOf = (f) => [1, 2, 3].map((k) => R.curl.find((c) => c.f === f && c.k === k)).filter(Boolean);
+    const setter = (chain) => (i, a) => { const c = chain[i]; c.bone.quaternion.copy(c.rest); c.bone.rotateOnAxis(c.axis, a); c.bone.updateWorldMatrix(false, true); };
+    // the trigger finger: its first segment runs forward along the frame (aimed at a point beside the
+    // trigger, searched over), the outer joints curl its pad onto the trigger
+    if (h.pad?.point && h.aimZone) {
+      const Z = h.aimZone, k = P(`${s}_point1`).applyMatrix4(M.clone().invert()).toArray(), T = new THREE.Vector3(...h.pad.point);
+      let best = null;
+      for (let x = Z.x[0]; x <= Z.x[1] + 1e-9; x += 0.006) for (let z = Z.z[0]; z <= Z.z[1] + 1e-9; z += 0.0065) {
+        h.pointDir = nrm(add([x, Z.y, z], mul(k, -1))); pose();
+        const ch = chainOf('point'), cu = this.reach(s, 'point', ch, setter(ch), T, M, 1);
+        if (!best || this.reachErr < best.e) best = { e: this.reachErr, dir: h.pointDir, cu };
+      }
+      h.pointDir = best.dir; this.reachErr = best.e; curls.point = best.cu;
+      pose();
+    }
+    // close the fingers
+    for (const f of FINGERS) {
+      const chain = chainOf(f), set = setter(chain);
+      if (curls[f]) { curls[f].forEach((a, i) => { if (i || !h.pointDir) set(i, a); }); continue; }   // (fitted above)
+      const ang = chain.map((c) => h.start?.[f]?.[c.k - 1] ?? 0);
+      curls[f] = ang;
+      if (h.fixed?.[f]) { curls[f] = h.fixed[f]; continue; }
+      if (h.pad?.[f]) { curls[f] = this.reach(s, f, chain, set, new THREE.Vector3(...h.pad[f]), M); continue; }
+      const r = f === 'thumb' ? 0.009 : 0.0075;
+      // which sample points along each segment are inside the grip
+      const seg = (j) => {
+        const a = chain[j].bone.getWorldPosition(new THREE.Vector3()), b = this.b[`${s}_${f}${chain[j].k + 1}`].getWorldPosition(new THREE.Vector3());
+        return [0.4, 0.75, 1].map((t) => inside(a.clone().lerp(b, t), r));
+      };
+      const state = () => chain.map((_, j) => seg(j));
+      const before = state();
+      // a segment makes new contact when a part of it that was clear comes inside (a part that already
+      // overlaps at the start, like a fingertip resting on the grip, doesn't count)
+      const contact = (from) => { const st = state(); for (let j = from; j < chain.length; j++) if (st[j].some((t, n) => t && !before[j][n])) return j; return -1; };
+      const max = (h.max?.[f] || (f === 'thumb' ? [1.1, 1.1, 0.9] : [1.6, 1.8, 1.4]));
+      // 1) close the whole finger together, as a hand closes, until some part of it touches
+      const wgt = f === 'thumb' ? [1, 0.9, 0.7] : [1, 1.15, 0.85];
+      let hit = -1;
+      for (let step = 0; step < 60; step++) {
+        const next = ang.map((a, i) => Math.min(max[i], a + 0.03 * wgt[i]));
+        if (next.every((a, i) => a === ang[i])) break;
+        next.forEach((a, i) => set(i, a));
+        hit = contact(0);
+        if (hit >= 0) { ang.forEach((a, i) => set(i, a)); break; }
+        next.forEach((a, i) => { ang[i] = a; });
+      }
+      // 2) the joints beyond the touching segment keep closing until they touch too (the finger wraps)
+      for (let i = Math.max(0, hit + 1); hit >= 0 && i < chain.length; i++) {
+        let a = ang[i];
+        while (a < max[i]) { const n = Math.min(max[i], a + 0.03); set(i, n); if (contact(i) >= 0) { set(i, a); break; } a = n; }
+        ang[i] = a;
+      }
+      ang.forEach((a, i) => { ang[i] = +a.toFixed(3); });
+    }
+    h.curl = (f, k) => curls[f]?.[k - 1] ?? 0;
+    h.fitted = true;
   }
 
   // A wrist can't roll against the forearm without the skin collapsing into a thin "candy wrapper"
@@ -143,47 +287,86 @@ export class FPArms {
 }
 
 const nrm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
-const sub = (a, b, k = 1) => a.map((x, i) => x - b[i] * k);
-// Where each hand goes, in the gun's own space (origin = right-hand grip, -Z = barrel, +Y = up):
-// wrist position, hand direction (wrist -> knuckles), palm facing, elbow pole (view-space offset) and finger curl
-export function handSpec(id, kind, meta, fore) {
-  // right hand wraps the grip: knuckles forward along its right side, palm facing into it
-  const g = nrm(meta ? [0, meta.grip[1], meta.grip[0]] : kind === 'pistol' ? [0, -0.92, 0.38] : kind === 'rifle' ? [0, -0.9, 0.42] : [0, -1, 0.1]);
-  const f0 = nrm(sub([0, 0, -1], g, -g[2]));                   // forward, square to the grip
-  const fwdR = nrm([f0[0] - 0.32, f0[1], f0[2]]);
-  const palmR = [-1, 0, 0];
-  const hold = kind === 'knife' || kind === 'nade';
-  // slim pistol and rifle grips need a tighter fist than a grenade, or the fingertips poke out past them
-  const grip = hold ? [1.15, 1.2, 0.8] : [1.35, 1.4, 1.0];
-  const R = {
-    // (a grenade sits higher, on top of the fist, so its body shows)
-    wrist: (kind === 'nade' ? [0.03, -0.04, 0.0] : [0.03, 0, -0.025]).map((x, i) => x + g[i] * 0.045 - fwdR[i] * 0.075),
-    fwd: fwdR, palm: palmR, pole: [0.3, -0.35, 0.25],
-    // the thumb swings out of the palm to lie along the far side; the index finger rests on the trigger
-    curl: (f, k) => (f === 'thumb' ? [-0.4, 0.2, 0.1][k - 1] : f === 'point' && !hold ? [0.8, 0.7, 0.4][k - 1] : grip[k - 1]),
-  };
+const add = (...vs) => vs[0].map((_, i) => vs.reduce((t, v) => t + v[i], 0));
+const mul = (v, k) => v.map((x) => x * k);
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+// What the hands hold, per gun, measured from the models (gun space: origin = where the right hand
+// grips, -Z = barrel, +Y = up; metres). Solid elliptic cylinders:
+//   grip: the pistol grip, centred t along the grip's slant, offset w toward the back and u sideways,
+//         half-width a (across X) and half-depth b (front to back); the hand sits `up` above its centre
+//   fore: the handguard / pump the left hand holds: centre c, half-width a, half-height b, half-length h
+const GRIPS = {
+  rifle:   { grip: { t: 0.05, w: -0.006, u: -0.0035, a: 0.0125, b: 0.021 }, fore: { c: [-0.004, 0.068, -0.322], a: 0.017, b: 0.032, h: 0.07 } },
+  smg:     { grip: { t: 0.05, w: -0.0045, u: 0, a: 0.014, b: 0.03 }, fore: { c: [0, 0.1035, -0.302], a: 0.026, b: 0.038, h: 0.05 } },
+  shotgun: { grip: { t: 0.045, w: 0.032, u: 0.001, a: 0.015, b: 0.025 }, fore: { c: [0.001, 0.024, -0.406], a: 0.014, b: 0.016, h: 0.05 } },
+  sniper:  { grip: { t: 0.05, w: 0.02, u: -0.0115, a: 0.0135, b: 0.028 }, fore: { c: [-0.012, 0.036, -0.35], a: 0.016, b: 0.019, h: 0.06 } },
+  pistol:  { grip: { t: 0.045, w: -0.0055, u: 0, a: 0.013, b: 0.0275, up: 0.03 } },
+};
+
+// Where each hand goes, in the gun's own space: wrist position, hand direction (wrist -> knuckles),
+// palm facing, elbow pole (view-space offset), and what the hand closes around (vol). The wrist is only a
+// first guess: FPArms.fit() slides the hand onto the grip and curls the fingers until they touch it.
+// `box` is the model's bounding box in gun space (used for grenades).
+// The fit (FPArms.fit) is kept in the spec, in the gun's own space, so each weapon is fitted once per page
+const specs = new Map();
+export function handSpec(id, kind, meta, box) {
+  const key = [id, kind, JSON.stringify(meta), JSON.stringify(box)].join('|');
+  if (!specs.has(key)) specs.set(key, buildSpec(id, kind, meta, box));
+  return specs.get(key);
+}
+function buildSpec(id, kind, meta, box) {
+  const G = GRIPS[id];
+  // the grip's slant (pointing down the grip), and the across-grip direction toward the back
+  const g = nrm(meta?.grip ? [0, meta.grip[1], meta.grip[0]] : kind === 'pistol' ? [0, -0.92, 0.38] : [0, -1, 0.1]);
+  const e2 = cross(g, [1, 0, 0]);
+  const f0 = nrm(mul(e2, -1));                                    // forward, square to the grip
+  let R, L;
   if (kind === 'knife') {
-    // the handle runs lengthwise behind the guard (+Z), so it lies across the palm like a hammer grip:
+    // the handle runs lengthwise behind the guard (+Z) and lies across the palm like a hammer grip:
     // knuckles toward the edge (-Y), palm against the handle's right side, thumb over the spine
-    const fwdK = nrm([-0.25, -0.97, -0.24]);
-    R.wrist = [0.03, -0.002, 0.055].map((x, i) => x - fwdK[i] * 0.075);
-    R.fwd = fwdK;
-    R.curl = (f, k) => (f === 'thumb' ? [0.3, 0.5, 0.3][k - 1] : [1.25, 1.3, 0.9][k - 1]);
-  }
-  let L;
-  if (kind === 'rifle' || kind === 'sniper' || (meta && meta.fore)) {
-    const [fu, fv] = meta?.fore || fore;
-    const F = [0, fv, -fu];
-    // cradled from below: the back of the hand runs across under the handguard toward the right,
-    // fingers wrap up its right side, the thumb lies along its left side
-    const fwdL = nrm([0.9, 0.2, -0.4]), palmL = nrm([0.2, 1, 0]);
-    L = { wrist: F.map((x, i) => x - fwdL[i] * 0.06 - palmL[i] * 0.04), fwd: fwdL, palm: palmL, pole: [-0.35, -0.3, 0.25],
-      // the thumb is swung out of the palm (negative curl) so it lies forward along the handguard
-      curl: (f, k) => (f === 'thumb' ? [-0.7, 0.1, 0.1][k - 1] : [1.1, 1.2, 0.8][k - 1]) };
+    const fwd = nrm([-0.25, -0.97, -0.24]), palm = [-1, 0, 0], C = [0, 0.002, 0.062];
+    R = { vol: [{ c: C, d: [0, 0, 1], e1: [1, 0, 0], e2: [0, 1, 0], a: 0.016, b: 0.018, h: 0.06 }],
+      wrist: add(C, [0.045, 0, 0], mul(fwd, -0.06)), fwd, palm, pole: [0.3, -0.35, 0.25], fixed: { thumb: [0.7, 0.5, 0.3] } };   // thumb curled over the fingers by the guard
+  } else if (kind === 'nade') {
+    // a grenade sits upright in the fist, its body above the thumb
+    const bx = box || { min: [-0.03, -0.05, -0.03], max: [0.03, 0.06, 0.03] }, H = meta?.hold;   // (a bottle: its body, not the rag)
+    const C = H ? H.c : mul(add(bx.min, bx.max), 0.5), rad = H ? H.r : Math.max(bx.max[0] - bx.min[0], bx.max[2] - bx.min[2]) / 2, hh = H ? H.hh : (bx.max[1] - bx.min[1]) / 2;
+    const fwd = nrm([-0.3, -0.25, -0.92]), palm = [-1, 0, 0];
+    R = { vol: [{ c: C, d: [0, 1, 0], e1: [1, 0, 0], e2: [0, 0, 1], a: rad, b: rad, h: hh }],
+      wrist: add(C, [rad + 0.04, -hh * 0.35, 0], mul(fwd, -0.06)), fwd, palm, pole: [0.3, -0.35, 0.25], fixed: { thumb: [0.6, 0.5, 0.3] } };   // thumb across the front, by the spoon
   } else {
-    // pistol (held one-handed, CS 1.6 style), knife, grenade, bomb: the left hand rests low and out of the way
-    L = { view: { wrist: [-0.26, -0.42, -0.22], fwd: [0.2, 0.3, -1], palm: [1, 0, 0], pole: [-0.6, -0.8, 0.1] }, curl: (f, k) => (f === 'thumb' ? 0.2 : 0.6) };
+    // right hand wraps the pistol grip: palm against its right side, knuckles forward and wrapping round
+    // the front, index finger along the trigger, thumb round the back onto the left side
+    const gr = G?.grip || { t: 0.045, w: 0, u: 0, a: 0.013, b: 0.024 };
+    const C = add(mul(g, gr.t), mul(e2, gr.w), [gr.u, 0, 0]);
+    const fwd = nrm(add(f0, [-0.3, 0, 0])), palm = [-1, 0, 0];
+    R = { vol: [{ c: C, d: g, e1: [1, 0, 0], e2, a: gr.a, b: gr.b, h: 0.05 }],
+      wrist: add(C, [gr.a + 0.03, 0, 0], mul(fwd, -0.08), mul(g, -(gr.up ?? 0.02))), fwd, palm, pole: [0.3, -0.35, 0.25],
+      fixed: { point: [0.75, 0.65, 0.35] }, start: { thumb: [-0.3, 0, 0] } };
+    if (G?.fore) {
+      // left hand cradles the handguard from below: palm up against it, fingers wrapping up its far
+      // side, thumb swung forward along its near side
+      const F = G.fore, fwdL = nrm([0.85, 0.2, -0.45]), palmL = nrm([0.12, 1, 0]);
+      L = { vol: [{ c: F.c, d: [0, 0, -1], e1: [1, 0, 0], e2: [0, 1, 0], a: F.a, b: F.b, h: F.h }],
+        wrist: add(F.c, [0, -F.b - 0.03, 0], mul(fwdL, -0.055)), fwd: fwdL, palm: palmL, pole: [-0.35, -0.3, 0.25],
+        start: { thumb: [-0.7, 0, 0] } };
+    } else if (kind === 'pistol') {
+      // thumbs-forward two-hand grip. The right thumb lies forward along the left side of the frame. The
+      // support hand's palm fills the left grip panel below it; its fingers wrap the front strap over the
+      // right hand's fingers (fitted against them, so the hands never pass through each other) and its
+      // thumb lies forward under the right thumb.
+      R.thumbDir = nrm([-0.2, 0.2, -0.96]); R.fixed.thumb = [0, 0.1, 0.05]; delete R.start;
+      // the index finger goes into the trigger guard, its pad on the trigger's face (a fixed curl made for the
+      // rifles would pass under the small guard and out the far side)
+      delete R.fixed.point; R.pad = { point: [0.004, 0.013, -0.059] }; R.aimZone = { x: [0.006, 0.03], y: 0.014, z: [-0.056, -0.03] };
+      const fwdL = nrm(add(f0, [0.35, 0.05, 0])), palmL = [1, 0, 0];
+      const frame = { c: [0, 0.035, -0.065], d: [0, 0, -1], e1: [1, 0, 0], e2: [0, 1, 0], a: 0.0145, b: 0.036, h: 0.095 };
+      L = { vol: [R.vol[0], frame], avoid: 'R', wrist: add(C, [-gr.a - 0.045, -0.008, 0.006], mul(fwdL, -0.06)), fwd: fwdL, palm: palmL,
+        pole: [-0.35, -0.35, 0.25], thumbDir: nrm([0.12, 0.12, -0.98]), fixed: { thumb: [0, 0.1, 0.05] } };
+    }
   }
+  // no support hand: it rests low and out of view
+  if (!L) L = { view: { wrist: [-0.26, -0.42, -0.22], fwd: [0.2, 0.3, -1], palm: [1, 0, 0], pole: [-0.6, -0.8, 0.1] }, curl: (f) => (f === 'thumb' ? 0.2 : 0.6) };
   return { R, L };
 }
-
