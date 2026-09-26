@@ -147,7 +147,7 @@ export class PlayerController {
       const h = H[s];
       if (h.vol && !h.fitted) A.fit(s, h, gun.matrixWorld);
       if (h.view) A.hand(s, _hw.set(...h.view.wrist), _hf.set(...h.view.fwd), _hp.set(...h.view.palm), _hq.set(...h.view.pole), h.curl);
-      else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl); }
+      else { const w = P(h.wrist); A.hand(s, w, D(h.fwd), D(h.palm), w.clone().add(_hq.set(...h.pole)), h.curl, h.thumbDir && D(h.thumbDir)); }
     }
   }
 

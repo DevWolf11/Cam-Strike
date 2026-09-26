@@ -84,6 +84,7 @@ export class FPArms {
         arm: { q: Q(`${s}_arm`), inv: frameInv(_b.subVectors(el, sh), pole) },
         elbow: { q: Q(`${s}_elbow`), inv: frameInv(_b.subVectors(wr, el), pole) },
         wrist: { q: Q(`${s}_wrist`), inv: frameInv(hf, palm) },
+        thumb: { q: Q(`${s}_thumb1`), inv: frameInv(P(`${s}_thumb2`).sub(P(`${s}_thumb1`)), palm) },
         curl,
       };
     }
@@ -100,8 +101,9 @@ export class FPArms {
   }
 
   // Put one hand: wrist at `wrist`, hand pointing `fwd` with the palm facing `palm` (all view space),
-  // elbow bending toward `pole`, fingers curled by curl(finger, joint) radians
-  hand(s, wrist, fwd, palm, pole, curl) {
+  // elbow bending toward `pole`, fingers curled by curl(finger, joint) radians; thumbDir (optional)
+  // points the thumb's base joint in a given direction, its pad facing the same way as the palm
+  hand(s, wrist, fwd, palm, pole, curl, thumbDir) {
     const R = this.rest[s], b = this.b;
     const A = this.anchor ? _hs.set(...this.anchor[s]) : R.sh, [l1, l2] = R.len;
     const toT = _c.subVectors(wrist, A);
@@ -123,6 +125,19 @@ export class FPArms {
     this.aim(b[`${s}_wrist`], R.wrist, fwd, palm);
     this.spreadTwist(b[`${s}_elbow`], b[`${s}_wrist`], this.rl[`${s}_wrist`]);
     for (const c of R.curl) { c.bone.quaternion.copy(c.rest); const ang = curl(c.f, c.k); if (ang) c.bone.rotateOnAxis(c.axis, ang); }
+    if (thumbDir) this.aim(b[`${s}_thumb1`], R.thumb, thumbDir, palm);
+  }
+
+  // The other hand as capsules (finger segments, palm), world space: so one hand can wrap the other
+  capsules(s) {
+    const out = [], P = (n) => this.b[n].getWorldPosition(new THREE.Vector3());
+    for (const f of FINGERS) for (let k = 1; k <= 3; k++) {
+      const a = this.b[`${s}_${f}${k}`], b = this.b[`${s}_${f}${k + 1}`];
+      if (a && b) out.push({ p: P(`${s}_${f}${k}`), q: P(`${s}_${f}${k + 1}`), r: f === 'thumb' ? 0.0095 : 0.0085 });
+    }
+    const w = P(`${s}_wrist`);
+    for (const f of ['point1', 'middle1', 'ring1', 'pink1']) out.push({ p: w, q: P(`${s}_${f}`), r: 0.014 });
+    return out;
   }
 
   // Fit a hand to the gun: slide it along its palm normal until the palm rests on the grip, then close
@@ -130,20 +145,27 @@ export class FPArms {
   // by solid elliptic cylinders measured from the model (h.vol, gun space), so contact is exact and cheap.
   // The hand's pose relative to the gun never changes, so this runs once per weapon draw.
   fit(s, h, M) {
+    const caps = h.avoid ? this.capsules(h.avoid) : [];
     const vols = h.vol.map((v) => ({ c: new THREE.Vector3(...v.c).applyMatrix4(M), d: new THREE.Vector3(...v.d).transformDirection(M),
       e1: new THREE.Vector3(...v.e1).transformDirection(M), e2: new THREE.Vector3(...v.e2).transformDirection(M), a: v.a, b: v.b, h: v.h }));
     const q = new THREE.Vector3();
+    const q2 = new THREE.Vector3();
     const inside = (p, r) => vols.some((v) => {
       q.subVectors(p, v.c);
       if (Math.abs(q.dot(v.d)) > v.h + r) return false;
       const u = q.dot(v.e1) / (v.a + r), w = q.dot(v.e2) / (v.b + r);
       return u * u + w * w < 1;
+    }) || caps.some((c) => {
+      q.subVectors(c.q, c.p); q2.subVectors(p, c.p);
+      const t = Math.max(0, Math.min(1, q2.dot(q) / Math.max(1e-9, q.lengthSq())));
+      return q2.addScaledVector(q, -t).lengthSq() < (c.r + r) * (c.r + r);
     });
     const fwdW = new THREE.Vector3(...h.fwd).transformDirection(M), palmW = new THREE.Vector3(...h.palm).transformDirection(M);
+    const thumbW = h.thumbDir ? new THREE.Vector3(...h.thumbDir).transformDirection(M) : undefined;
     const P = (n) => this.b[n].getWorldPosition(new THREE.Vector3());
     const pose = () => {
       const w = new THREE.Vector3(...h.wrist).applyMatrix4(M);
-      this.hand(s, w, fwdW, palmW, w.clone().add(new THREE.Vector3(...h.pole)), (f, k) => h.start?.[f]?.[k - 1] ?? 0);
+      this.hand(s, w, fwdW, palmW, w.clone().add(new THREE.Vector3(...h.pole)), (f, k) => h.fixed?.[f]?.[k - 1] ?? h.start?.[f]?.[k - 1] ?? 0, thumbW);
       this.b[`${s}_wrist`].updateWorldMatrix(false, true);
     };
     // palm contact (the palm's skin is ~1.2 cm in front of the hand bones)
@@ -274,13 +296,15 @@ export function handSpec(id, kind, meta, box) {
         wrist: add(F.c, [0, -F.b - 0.03, 0], mul(fwdL, -0.055)), fwd: fwdL, palm: palmL, pole: [-0.35, -0.3, 0.25],
         start: { thumb: [-0.7, 0, 0] } };
     } else if (kind === 'pistol') {
-      R.fixed.thumb = [-0.15, 0.15, 0.1];        // thumbs-forward grip: the right thumb lies along the frame
-      // support hand: palm on the left side of the grip below the thumb, fingers wrapping forward round
-      // the right hand's fingers, thumb forward under the slide
-      const fwdL = nrm(add(mul(f0, 1), [0.3, -0.1, 0])), palmL = nrm([1, 0, -0.2]);
-      const fist = { c: C, d: g, e1: [1, 0, 0], e2, a: gr.a + 0.02, b: gr.b + 0.02, h: 0.045 };
-      L = { vol: [fist], wrist: add(C, [-gr.a - 0.05, -0.01, 0.01], mul(fwdL, -0.06)), fwd: fwdL, palm: palmL, pole: [-0.35, -0.35, 0.25],
-        start: { thumb: [-0.5, 0, 0] } };
+      // thumbs-forward two-hand grip. The right thumb lies forward along the left side of the frame. The
+      // support hand's palm fills the left grip panel below it; its fingers wrap the front strap over the
+      // right hand's fingers (fitted against them, so the hands never pass through each other) and its
+      // thumb lies forward under the right thumb.
+      R.thumbDir = nrm([-0.2, 0.2, -0.96]); R.fixed.thumb = [0, 0.1, 0.05]; delete R.start;
+      const fwdL = nrm(add(f0, [0.35, 0.05, 0])), palmL = [1, 0, 0];
+      const frame = { c: [0, 0.035, -0.065], d: [0, 0, -1], e1: [1, 0, 0], e2: [0, 1, 0], a: 0.0145, b: 0.036, h: 0.095 };
+      L = { vol: [R.vol[0], frame], avoid: 'R', wrist: add(C, [-gr.a - 0.045, -0.008, 0.006], mul(fwdL, -0.06)), fwd: fwdL, palm: palmL,
+        pole: [-0.35, -0.35, 0.25], thumbDir: nrm([0.12, 0.12, -0.98]), fixed: { thumb: [0, 0.1, 0.05] } };
     }
   }
   // no support hand: it rests low and out of view
