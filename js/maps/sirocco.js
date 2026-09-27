@@ -22,7 +22,7 @@ export default function sirocco() {
         frame: 'wood', doorframe: 'sandstone', infill: 'sandbrick', arch: 'sandstone', ceiling: 'ceiling', skirting: 'stone_rubble',
         patches: { sirocco_ground: 'sirocco_sand', sirocco_sand: 'sirocco_ground', pavement_red: 'sirocco_sand', cobble: 'sirocco_sand' }, patchDensity: 0.25,
       },
-      fogNear: 90, fogFar: 300, bounce: 0xa89070, dust: 0xd0b88a, wallH: 7, sunI: 2.6, hemiI: 2.2,
+      fogNear: 90, fogFar: 300, bounce: 0xa89070, dust: 0xd0b88a, wallH: 7, sunI: 2.6, hemiI: 2.2, indoor: 0.85,
       tints: [0xffffff, 0xf4e8d8, 0xe6dccb, 0xfff2de, 0xddd3c4, 0xf2e2ca, 0xfaf4ea, 0xe9d9bf],
       surfTint: { cobble: 0xe2d2b4, pavement_red: 0xf0e2cc },
     },
@@ -44,7 +44,7 @@ export default function sirocco() {
   m.crates(60, 136, 61, 137, 1).crates(60, 138, 60, 138, 2).crates(107, 149, 108, 150, 1).crates(88, 150, 89, 151, 2);
   m.model('covered_car', 80.5, 148.5, { rot: Math.PI / 2 - 0.1 });
   m.model('barrel_red', 106.5, 136.5).model('barrel_steel', 107.4, 137.3).model('barrel_blue', 59.6, 150.5);
-  m.model('hand_truck', 72.6, 150.2, { rot: 0.4, solid: false });
+  m.model('bucket', 72.6, 150.4, { solid: false }).model('jerrycan', 73.3, 150.6, { rot: 0.4, solid: false });
   m.model('fire_pit', 92.5, 141.5, { solid: false });
   m.palm(76, 138, 7.5).palm(95, 137, 6.8).palm(62, 145, 6.2);
   m.prop('awning', 84, 151.4, { w: 6, d: 1.6, y: TS + 2.7, color: 0x9a3b2c });
@@ -117,7 +117,7 @@ export default function sirocco() {
   m.crates(38, 44, 39, 45, 1).crates(40, 44, 40, 44, 2);
   m.model('barrel_red', 43.5, 9.5).model('barrel_steel', 43.6, 10.5).model('barrel_blue', 9.5, 47.4);
   m.model('sacks', 18.5, 44.7, { rot: 0.2, solid: false }).model('cement_bag', 20.2, 45.1, { rot: 1.2, solid: false });
-  m.model('hand_truck', 44.4, 40.3, { rot: -1.5, solid: false });
+  m.model('cement_bag', 44.2, 40.3, { rot: -1.5, solid: false });
   m.prop('awning', 32, 8.4, { w: 7, d: 1.8, y: 3.7, color: 0x3b6e8f });
   m.palm(40, 18, 6.6);
 

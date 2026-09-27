@@ -6,15 +6,52 @@ import { makePhotoSky, makeSkyline } from './sky.js';
 import { surfMaterial, propModel, loadProp } from './mapassets.js';
 import { SKIES } from './maps/skies.js';
 import { buildKit } from './mapkit.js';
+import { PROP_TRIS } from './maps/propsizes.js';
 
-const INDOOR = 0.6;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const CHUNK = 48, PROP_CHUNK = 80;     // meters: static geometry is split so off-screen parts are culled
+
+// A GeoBuilder split into square chunks by position (same drawing API)
+class Chunked {
+  constructor() { this.parts = new Map(); this.count = 0; }
+  at(x, z) {
+    const k = Math.floor(x / CHUNK) * 1000 + Math.floor(z / CHUNK);
+    let b = this.parts.get(k);
+    if (!b) this.parts.set(k, (b = new GeoBuilder()));
+    this.count++;
+    return b;
+  }
+  quad(a, b, c, d, ...r) { this.at((a.x + c.x) / 2, (a.z + c.z) / 2).quad(a, b, c, d, ...r); return this; }
+  box(w, h, d, x, y, z, ...r) { this.at(x, z).box(w, h, d, x, y, z, ...r); return this; }
+  wbox(w, h, d, x, y, z, ...r) { this.at(x, z).wbox(w, h, d, x, y, z, ...r); return this; }
+  cyl(r0, r1, h, x, y, z, ...r) { this.at(x, z).cyl(r0, r1, h, x, y, z, ...r); return this; }
+  wcyl(r0, r1, h, x, y, z, ...r) { this.at(x, z).wcyl(r0, r1, h, x, y, z, ...r); return this; }
+  sphere(rad, x, y, z, ...r) { this.at(x, z).sphere(rad, x, y, z, ...r); return this; }
+  lathe(pts, x, y, z, ...r) { this.at(x, z).lathe(pts, x, y, z, ...r); return this; }
+  beam(a, b, ...r) { this.at((a[0] + b[0]) / 2, (a[2] + b[2]) / 2).beam(a, b, ...r); return this; }
+  // One geometry per chunk for heavy builders (worth culling); light ones merge into one mesh
+  // so they cost a single draw call.
+  build(minTris = 12000) {
+    const parts = [...this.parts.values()].filter((b) => b.count);
+    const tris = parts.reduce((n, b) => n + b.ind.length / 3, 0);
+    if (tris >= minTris) return parts.map((b) => b.build());
+    const all = new GeoBuilder();
+    for (const b of parts) {
+      const base = all.count;
+      all.pos.push(...b.pos); all.nor.push(...b.nor); all.uv.push(...b.uv); all.col.push(...b.col);
+      for (const i of b.ind) all.ind.push(base + i);
+      all.count += b.count;
+    }
+    return [all.build()];
+  }
+}
 
 // Builds every static mesh for a map. Returns the list of objects added to the scene.
 // Surfaces are photographic textures (see mapassets.js) with UVs in meters; the facade kit
 // (mapkit.js) dresses walls and rooftops; props are real models drawn as instanced meshes.
 export function buildMap(scene, def, quality = 'medium') {
   const { w, h } = def, T = def.theme, TR = T.trim || {};
+  const INDOOR = T.indoor ?? 0.72;       // brightness of roofed areas (they only get sky light)
   const I = (x, z) => z * w + x;
   const inb = (x, z) => x >= 0 && z >= 0 && x < w && z < h;
   const wall = (x, z) => !inb(x, z) || def.solid[I(x, z)] === 1;
@@ -25,15 +62,16 @@ export function buildMap(scene, def, quality = 'medium') {
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const added = [];
   const builders = new Map();
-  const S = (name) => { if (!builders.has(name)) builders.set(name, new GeoBuilder()); return builders.get(name); };
-  const details = new GeoBuilder(), glow = new GeoBuilder();
+  const S = (name) => { if (!builders.has(name)) builders.set(name, new Chunked()); return builders.get(name); };
+  const details = new Chunked(), glow = new Chunked();
   const hash = (x, z, k = 0) => { const n = Math.sin(x * 127.1 + z * 311.7 + k * 74.7) * 43758.5453; return n - Math.floor(n); };
   const inst = new Map();
   // Queue an instance of a prop model. ry rotates around Y; s scales uniformly.
   const place = (model, x, y, z, ry = 0, s = 1, color) => {
-    if (!inst.has(model)) inst.set(model, []);
+    const key = `${model}|${Math.floor(x / PROP_CHUNK)},${Math.floor(z / PROP_CHUNK)}`;      // regrouped below if light
+    if (!inst.has(key)) inst.set(key, []);
     const m = new THREE.Matrix4().compose(V(x, y, z), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), ry), V(s, s, s));
-    inst.get(model).push({ m, color });
+    inst.get(key).push({ m, color });
   };
 
   const wallSurf = (wm) => T.walls[wm] || T.walls[0];
@@ -124,7 +162,8 @@ export function buildMap(scene, def, quality = 'medium') {
     if (wall(x, z)) continue;
     const rf = roof(x, z);
     if (rf <= 0) continue;
-    S(ceilName).quad(V(x, rf, z), V(x + 1, rf, z), V(x + 1, rf, z + 1), V(x, rf, z + 1), 0xffffff, [x, z, x + 1, z, x + 1, z + 1, x, z + 1], [0.62, 0.62, 0.62, 0.62]);
+    const cs = 0.8 * Math.max(1, INDOOR);
+    S(ceilName).quad(V(x, rf, z), V(x + 1, rf, z), V(x + 1, rf, z + 1), V(x, rf, z + 1), 0xffffff, [x, z, x + 1, z, x + 1, z + 1, x, z + 1], [cs, cs, cs, cs]);
     const topY = Math.max(T.wallH ?? 6, rf + 0.6);
     S(TR.roofTop || T.walls[0]).quad(V(x, topY, z + 1), V(x + 1, topY, z + 1), V(x + 1, topY, z), V(x, topY, z), 0xffffff, [x, z + 1, x + 1, z + 1, x + 1, z, x, z], [0.85, 0.85, 0.85, 0.85]);
     for (const [dx, dz] of DIRS) {
@@ -205,6 +244,28 @@ export function buildMap(scene, def, quality = 'medium') {
         for (let k = 0; k < n; k++) { const o = -aw / 2 + (k + 0.5) * aw / n; d.box(aw / n, 0.035, ad, p.x + o * c, p.y, p.z - o * sn, k % 2 ? col : 0xe8e0d0, 0.18, ry, 0); }
         break;
       }
+      case 'truckcab': {
+        // cab-over truck: painted body, dark glass, bumper, wheels
+        const r = p.rot || 0, cs = Math.cos(r), sn = Math.sin(r), body = S('rusty');
+        const at = (lx, lz) => [p.x + lx * cs + lz * sn, p.z - lx * sn + lz * cs];
+        const put = (b, w2, h2, d2, lx, ly, lz, col) => { const [x, z] = at(lx, lz); b.wbox(w2, h2, d2, x, y + ly, z, col, r); };
+        put(body, 2.5, 1.9, 1.9, 0, 1.55, 0, p.color ?? 0xc84a3a);
+        put(body, 2.3, 0.7, 0.06, 0, 2.05, 0.96, 0x2a3440);
+        put(body, 2.6, 0.3, 0.3, 0, 0.55, 1.0, 0x3a3c3e);
+        for (const lx of [-1.05, 1.05]) { const [x, z] = at(lx, 0.1); d.cyl(0.5, 0.5, 0.35, x, y + 0.5, z, 0x1a1a1a, 14, 0, r, Math.PI / 2); }
+        break;
+      }
+      case 'forklift': {
+        const r = p.rot || 0, cs = Math.cos(r), sn = Math.sin(r), body = S('rusty');
+        const at = (lx, lz) => [p.x + lx * cs + lz * sn, p.z - lx * sn + lz * cs];
+        const put = (b, w2, h2, d2, lx, ly, lz, col) => { const [x, z] = at(lx, lz); b.wbox(w2, h2, d2, x, y + ly, z, col, r); };
+        put(body, 1.2, 1.1, 2.0, 0, 0.75, 0, 0xe0b030);
+        put(body, 1.1, 0.08, 1.0, 0, 2.15, 0.25, 0x333333);
+        for (const lx of [-0.5, 0.5]) { put(body, 0.08, 2.1, 0.08, lx, 1.2, -0.2, 0x333333); put(body, 0.08, 2.1, 0.08, lx, 1.2, 0.7, 0x333333); }
+        for (const lx of [-0.4, 0.4]) { put(body, 0.1, 2.6, 0.1, lx, 1.3, -1.05, 0x2a2a2a); put(body, 0.12, 0.05, 1.1, lx * 0.8, 0.12, -1.6, 0x4a4a4a); }
+        for (const [lx, lz] of [[0.6, 0.6], [-0.6, 0.6], [0.6, -0.6], [-0.6, -0.6]]) { const [x, z] = at(lx, lz); d.cyl(0.3, 0.3, 0.22, x, y + 0.3, z, 0x151515, 12, 0, r, Math.PI / 2); }
+        break;
+      }
       case 'silo': {
         const m = S(p.surf || 'painted_concrete');
         m.wcyl(p.r, p.r, p.h, p.x, p.y + p.h / 2, p.z, 0xd8dcdf, 28);
@@ -282,22 +343,31 @@ export function buildMap(scene, def, quality = 'medium') {
   for (const [name, b] of builders) {
     if (!b.count) continue;
     const mat = name === 'palm_frond' ? frondMaterial() : name === 'palm_bark' ? barkMaterial() : surfMaterial(name, quality, { tint: T.surfTint?.[name] });
-    const mesh = new THREE.Mesh(b.build(), mat);
-    mesh.castShadow = mesh.receiveShadow = shadows;
-    if (name === 'palm_frond') mesh.customDepthMaterial = frondDepth();
-    scene.add(mesh); added.push(mesh);
+    for (const geo of b.build()) {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = mesh.receiveShadow = shadows;
+      if (name === 'palm_frond') mesh.customDepthMaterial = frondDepth();
+      scene.add(mesh); added.push(mesh);
+    }
   }
-  if (details.count) {
-    const m = new THREE.Mesh(details.build(), new THREE.MeshLambertMaterial({ vertexColors: true, shadowSide: THREE.DoubleSide }));
-    m.castShadow = m.receiveShadow = shadows; scene.add(m); added.push(m);
-  }
-  if (glow.count) { const m = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true })); scene.add(m); added.push(m); }
+  const detailMat = new THREE.MeshLambertMaterial({ vertexColors: true, shadowSide: THREE.DoubleSide });
+  for (const geo of details.build()) { const m = new THREE.Mesh(geo, detailMat); m.castShadow = m.receiveShadow = shadows; scene.add(m); added.push(m); }
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  for (const geo of glow.build()) { const m = new THREE.Mesh(geo, glowMat); scene.add(m); added.push(m); }
   for (const o of ctx.extra) { o.receiveShadow = shadows; scene.add(o); added.push(o); }
 
   // instanced prop models
   let alive = true;
   added.dispose = () => { alive = false; };
-  for (const [name, list] of inst) {
+  // prop instances: keep the quadrant split only where a model has enough triangles to matter
+  const byModel = new Map();
+  for (const [key, list] of inst) { const name = key.split('|')[0]; if (!byModel.has(name)) byModel.set(name, []); byModel.get(name).push(list); }
+  const groups = [];
+  for (const [name, lists] of byModel) {
+    const n = lists.reduce((k, l) => k + l.length, 0), tris = (PROP_TRIS[name] || 800) * n;
+    if (tris > 15000) for (const l of lists) groups.push([name, l]); else groups.push([name, lists.flat()]);
+  }
+  for (const [name, list] of groups) {
     const addInst = (model) => {
       for (const part of model.parts) {
         const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
@@ -350,7 +420,7 @@ export function buildMap(scene, def, quality = 'medium') {
     const inv = view.clone().transpose(), box = new THREE.Box3();          // rotation only: inverse = transpose
     let maxH = 0; for (let i = 0; i < w * h; i++) if (def.solid[i]) maxH = Math.max(maxH, def.wallH[i]);
     for (const cx of [0, w]) for (const cz of [0, h]) for (const cy of [0, maxH + 18]) box.expandByPoint(V(cx, cy, cz).sub(center).applyMatrix4(inv));
-    const half = Math.max(box.max.x - box.min.x, box.max.y - box.min.y) / 2 + 2;
+    const half = Math.max(-box.min.x, box.max.x, -box.min.y, box.max.y) + 2;      // frustum is centred on the map centre
     Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 420 });
     sun.shadow.camera.updateProjectionMatrix();
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05;

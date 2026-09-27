@@ -19,7 +19,7 @@ export const SURF = {
 const GAIN = {
   adobe: 2.5, plaster_beige: 2.0, plaster_damaged: 1.45, sandstone: 1.2, stone_rubble: 1.2, sirocco_sand: 1.45,
   pavement_red: 1.9, patio: 1.05, cobble: 1.3, concrete_floor: 2.0, concrete_wall: 2.4, concrete_light: 1.1, asphalt: 1.25,
-  block_wall: 3.0, corrugated: 2.0, factory_brick: 1.2, factory_panel: 1.25, metal_sheet_red: 2.2, diamond_plate: 3.0,
+  block_wall: 3.0, corrugated: 2.0, factory_brick: 1.2, factory_panel: 1.25, metal_sheet_red: 2.2, diamond_plate: 1.0,
   hangar_floor: 3.5, painted_concrete: 1.5, grey_plaster: 1.3, wood: 1.6, door_wood: 1.5, crate: 2.0, terracotta: 3.0,
   tile_pattern: 2.4, plaster_red: 1.6, plaster_white: 0.95, shutter: 1.3, roof_clay: 1.8, ceiling: 1.4, planks_blue: 1.6,
   anti_skid: 1.4, container_grey: 0.85, sirocco_ground: 0.95,
@@ -119,7 +119,9 @@ function toFloat(a) {
   return new THREE.BufferAttribute(out, k);
 }
 
-export function loadSky(name) { return loadTex(`assets/skies/${name}.jpg`, true); }
+// Sky panoramas stay in sRGB end to end (the sky shader writes them straight out), which avoids
+// an 8-bit linear round trip that bands smooth gradients on some GPUs.
+export function loadSky(name) { return loadTex(`assets/skies/${name}.jpg`, false); }
 
 // Preload everything a map uses. onProgress(0..1) is optional.
 export async function loadMapAssets(def, onProgress) {

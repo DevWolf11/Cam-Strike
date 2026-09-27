@@ -26,8 +26,7 @@ void main() {
   vec3 col = texture2D(uSky, uv).rgb * uBright;
   // blend into the fog colour at the horizon so distant walls melt into the sky
   col = mix(uHaze, col, smoothstep(-0.02, 0.16, d.y));
-  gl_FragColor = vec4(col, 1.0);
-  #include <colorspace_fragment>
+  gl_FragColor = vec4(col, 1.0);      // already sRGB: no colour-space conversion
 }`;
 
 export function makePhotoSky(theme, sky0, rot) {
@@ -36,7 +35,7 @@ export function makePhotoSky(theme, sky0, rot) {
     vertexShader: SKY_VS, fragmentShader: SKY_FS, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
     uniforms: {
       uSky: { value: tex }, uRot: { value: rot }, uRows: { value: sky0.rows }, uBright: { value: theme.skyBright ?? 1 },
-      uHaze: { value: theme.fog !== undefined ? new THREE.Color(theme.fog) : new THREE.Color().setRGB(...sky0.horizon, THREE.SRGBColorSpace) },
+      uHaze: { value: theme.fog !== undefined ? new THREE.Color(theme.fog).convertLinearToSRGB() : new THREE.Color(...sky0.horizon) },
     },
   });
   loadSky(theme.sky || 'clear').then((t) => {

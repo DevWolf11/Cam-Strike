@@ -249,3 +249,10 @@ select { background: #221c14; color: var(--txt); border: 1px solid var(--line); 
 #rotate div { font-size: 64px; animation: spin 2s ease-in-out infinite; }
 @keyframes spin { 0%, 30% { transform: rotate(0); } 70%, 100% { transform: rotate(90deg); } }
 @media (prefers-reduced-motion: reduce) { #rotate div { animation: none; } }
+
+/* map loading */
+#loading { z-index: 30; background: rgba(8,8,10,0.82); }
+.load-box { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #eee; font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; }
+.load-box small { color: #aaa; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.load-bar { width: min(60vw, 320px); height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden; }
+.load-bar i { display: block; height: 100%; width: 0; background: #f0a830; transition: width 0.15s; }

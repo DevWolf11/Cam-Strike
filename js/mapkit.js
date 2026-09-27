@@ -33,13 +33,13 @@ const STYLES = {
   industrial: {
     win: { w: [2.2, 3.4], h: [0.9, 1.2], gap: [4.5, 7], strip: true, first: 4.6, floor: 3.6 },
     door: { every: [10, 18], w: [3.4, 4.2], h: [3.4, 4.0], rollup: 0.6, metal: 0.4 },
-    parapet: 0.25, quoins: false, band: 0.3, plinth: 0.9, pipes: 0.5, ducts: 0.35, vents: 0.35, lamps: 0.45, cameras: 0.15, ladders: 0.08,
+    parapet: 0.25, quoins: false, band: 0.3, plinth: 0.9, pipes: 0.5, ducts: 0.3, vents: 0.18, lamps: 0.25, cameras: 0.1, ladders: 0.08,
     hazard: 0.35, cables: 0.1, posters: 0.015, rooftop: 0.6, drift: 0.5, grime: true, lamp: 'security_light',
   },
   facility: {
     win: { w: [1.6, 2.6], h: [0.8, 1.0], gap: [5, 8], strip: true, first: 5.2, floor: 4 },
     door: { every: [12, 20], w: [1.3, 1.5], h: [2.3, 2.4], metal: 1 },
-    parapet: 0.2, quoins: false, band: 0.5, plinth: 1, pipes: 0.45, ducts: 0.3, vents: 0.45, lamps: 0.5, cameras: 0.2, ladders: 0.05,
+    parapet: 0.2, quoins: false, band: 0.5, plinth: 1, pipes: 0.45, ducts: 0.3, vents: 0.22, lamps: 0.3, cameras: 0.12, ladders: 0.05,
     hazard: 0.6, cables: 0.05, posters: 0, rooftop: 0.5, drift: 0.4, grime: true, lamp: 'wall_light',
   },
 };
@@ -57,6 +57,7 @@ export function buildKit(ctx) {
   }
   if (!low) { rooftops(K, runs); cables(K, runs); }
   ledges(K);
+  if (T.ceilingLights) ceilingLights(K);
   drifts(K, runs);
   patches(K);
   if (!low) rubble(K, runs);
@@ -217,7 +218,7 @@ function facadeRun(K, r, low) {
     else K.box(r, cap, r.s0 + len / 2, y, 0.05, len, 0.14, 0.1);
   }
   // corner quoins at the run ends where the building turns a convex corner
-  if (st.quoins && !metalWall && tall > 3) {
+  if (st.quoins && !metalWall && tall > 3 && !low) {
     for (const end of [0, 1]) {
       const cellA = end ? r.a1 : r.a0, side = end ? 1 : -1;
       const cx = r.dx ? r.line : cellA + side, cz = r.dx ? cellA + side : r.line;
@@ -328,7 +329,7 @@ function glowAt(K, r, s, y, o) {
 }
 
 function window_(K, r, s, y, ww, wh, fl) {
-  const { st, S, trim } = K, W = st.win;
+  const { st, S, trim } = K, W = st.win, low = K.ctx.quality === 'low';
   const h = K.hash(s * 1.3, r.line + fl * 7, 34);
   const frameS = S(trim('frame', 'wood')), sill = S(trim('sill', 'plaster_white')), shut = S('door_wood');
   const tint = st.shutterTints[Math.floor(K.hash(s, r.line, 35) * st.shutterTints.length)];
@@ -339,16 +340,15 @@ function window_(K, r, s, y, ww, wh, fl) {
     K.box(r, sill, s, y - wh / 2 - 0.05, 0.06, ww + 0.25, 0.1, 0.12);
     return;
   }
-  // dark opening (glass / interior)
-  K.dbox(r, s, y, 0.008, ww, wh, 0.016, 0x151a20);
+  // glass: dark interior with a sky reflection gradient, some with curtains drawn
+  glass(K, r, s, y, ww, wh);
   // frame, mullions
   const f = 0.08;
   K.box(r, frameS, s - ww / 2 + f / 2, y, 0.05, f, wh, 0.1, tint);
   K.box(r, frameS, s + ww / 2 - f / 2, y, 0.05, f, wh, 0.1, tint);
   K.box(r, frameS, s, y + wh / 2 - f / 2, 0.05, ww, f, 0.1, tint);
   K.box(r, frameS, s, y - wh / 2 + f / 2, 0.05, ww, f, 0.1, tint);
-  K.box(r, frameS, s, y, 0.035, 0.04, wh - f, 0.05, tint);
-  if (wh > 1.2) K.box(r, frameS, s, y + wh * 0.18, 0.035, ww - f, 0.04, 0.05, tint);
+  if (!low) { K.box(r, frameS, s, y, 0.035, 0.04, wh - f, 0.05, tint); if (wh > 1.2) K.box(r, frameS, s, y + wh * 0.18, 0.035, ww - f, 0.04, 0.05, tint); }
   // sill and lintel / arch
   K.box(r, sill, s, y - wh / 2 - 0.05, 0.08, ww + 0.28, 0.1, 0.16);
   if (arch) archOver(K, r, s, y + wh / 2, ww, trim('sill', 'plaster_white'));
@@ -362,7 +362,7 @@ function window_(K, r, s, y, ww, wh, fl) {
     // shutters swung open flat against the wall
     for (const side of [-1, 1]) K.box(r, shut, s + side * (ww * 0.75 + 0.05), y, 0.035, ww / 2, wh, 0.04, tint);
   }
-  if (K.hash(s, r.line, 38) < W.grille) {
+  if (!low && K.hash(s, r.line, 38) < W.grille) {
     const n = Math.max(3, Math.round(ww / 0.14));
     for (let i = 1; i < n; i++) K.dbox(r, s - ww / 2 + i * ww / n, y, 0.13, 0.018, wh, 0.018, 0x26282a);
     for (const yy of [-wh / 3, wh / 3]) K.dbox(r, s, y + yy, 0.13, ww, 0.022, 0.02, 0x26282a);
@@ -462,7 +462,7 @@ function rollupDoor(K, r, s, dw, dh) {
   for (const sd of [-1, 1]) K.dbox(r, s + sd * (dw / 2 + 0.06), y0 + dh / 2, 0.06, 0.12, dh, 0.12, 0x44474a);
   // hazard stripes on the jambs
   for (const sd of [-1, 1]) for (let y = y0 + 0.1; y < y0 + 1.2; y += 0.3) K.dbox(r, s + sd * (dw / 2 + 0.06), y + 0.07, 0.125, 0.13, 0.14, 0.01, 0xd8a820);
-  if (K.hash(s, r.line, 53) < 0.7) { K.model(r, K.st.lamp === 'wall_light' ? 'wall_light' : 'security_light', s, y0 + dh + 0.65, 0.18); glowAt(K, r, s, y0 + dh + 0.6, 0.35); }
+  if (K.hash(s, r.line, 53) < 0.4) { K.model(r, K.st.lamp === 'wall_light' ? 'wall_light' : 'security_light', s, y0 + dh + 0.65, 0.18); glowAt(K, r, s, y0 + dh + 0.6, 0.35); }
 }
 
 function stripWindow(K, r, s, y, ww, wh) {
@@ -490,18 +490,24 @@ function drainpipe(K, r, s, metal) {
 }
 
 function duct(K, r) {
-  // horizontal duct run along the wall on brackets
-  const y = r.nb + 3.4 + K.R(r, 80) * Math.max(0, r.tall - 4.6), o = 0.3;
-  const s0 = r.s0 + 0.8, s1 = r.s1 - 0.8;
-  for (let s = s0; s + 1.42 <= s1; s += 1.42) {
-    const [x, z] = K.P(r, s + 0.71, o);
-    K.place('duct', x, y, z, r.dx ? 0 : Math.PI / 2);
-    K.dbox(r, s + 0.1, y + 0.18, o / 2, 0.05, 0.05, o, 0x44474a);
+  // horizontal round duct along the wall on brackets, with joint collars every 1.5 m
+  const y = r.nb + 3.4 + K.R(r, 80) * Math.max(0, r.tall - 4.6), o = 0.34, s0 = r.s0 + 0.8, s1 = r.s1 - 0.8, len = s1 - s0;
+  if (len < 2) return;
+  const [x, z] = K.P(r, (s0 + s1) / 2, o), b = K.S('rusty'), col = 0xc8ccd0;
+  if (r.dx) b.wcyl(0.2, 0.2, len, x, y, z, col, 10, Math.PI / 2, 0, 0); else b.wcyl(0.2, 0.2, len, x, y, z, col, 10, 0, 0, Math.PI / 2);
+  for (let s = s0 + 0.2; s < s1; s += 1.5) {
+    const [cx, cz] = K.P(r, s, o);
+    if (r.dx) K.details.cyl(0.215, 0.215, 0.06, cx, y, cz, 0x7a7e82, 10, Math.PI / 2, 0, 0); else K.details.cyl(0.215, 0.215, 0.06, cx, y, cz, 0x7a7e82, 10, 0, 0, Math.PI / 2);
+    K.dbox(r, s, y + 0.23, o / 2, 0.04, 0.04, o, 0x44474a);
   }
 }
 
 function ladder(K, r, s) {
-  for (let y = r.nb; y < r.H - 1; y += 2.1) K.model(r, 'ladder', s, y, 0.1);
+  // steel wall ladder: two rails and rungs, with stand-off brackets
+  const y0 = r.nb + 0.3, y1 = r.H - 0.2, o = 0.18, col = 0x5a5e62;
+  for (const sd of [-0.22, 0.22]) K.dbox(r, s + sd, (y0 + y1) / 2, o, 0.05, y1 - y0, 0.05, col);
+  for (let y = y0 + 0.2; y < y1; y += 0.3) K.dbox(r, s, y, o, 0.44, 0.03, 0.03, col);
+  for (let y = y0 + 0.5; y < y1; y += 2) for (const sd of [-0.22, 0.22]) K.dbox(r, s + sd, y, o / 2, 0.04, 0.04, o, col);
 }
 
 // interiors (faces under a roof): skirting, lights, pipes
@@ -640,7 +646,7 @@ function patches(K) {
     const hsh = K.hash(x, z, 160);
     if (hsh > (TR.patchDensity ?? 0.22)) continue;
     const i = I(x, z);
-    if (ctx.wall(x, z) || def.mat[i] === MAT.HIDDEN || def.mat[i] === MAT.CRATE || def.mat[i] === MAT.CONTAINER || def.mat[i] === MAT.LOWWALL) continue;
+    if (ctx.wall(x, z) || def.roof[i] > 0 || def.mat[i] === MAT.HIDDEN || def.mat[i] === MAT.CRATE || def.mat[i] === MAT.CONTAINER || def.mat[i] === MAT.LOWWALL) continue;
     const name = map[surfOf(def.mat[i])];
     if (!name) continue;
     const h0 = def.height[i], rad = 1.2 + K.hash(x, z, 161) * 2.4;
@@ -648,7 +654,7 @@ function patches(K) {
     const R = Math.ceil(rad);
     for (let dz = -R; dz <= R && flat; dz++) for (let dx = -R; dx <= R; dx++) {
       if (dx * dx + dz * dz > rad * rad) continue;
-      if (ctx.wall(x + dx, z + dz) || Math.abs(ctx.hgt(x + dx, z + dz) - h0) > 0.01) { flat = false; break; }
+      if (ctx.wall(x + dx, z + dz) || ctx.roof(x + dx, z + dz) > 0 || Math.abs(ctx.hgt(x + dx, z + dz) - h0) > 0.01) { flat = false; break; }
     }
     if (!flat) continue;
     K.blob(name, x + 0.5 + (K.hash(x, z, 162) - 0.5), h0 + 0.008, z + 0.5 + (K.hash(x, z, 163) - 0.5), rad, 0.75);
@@ -682,4 +688,31 @@ function acUnit(K, r, s, y, a) {
   for (let k = -2; k <= 2; k++) K.dbox(r, s - 0.12 + k * 0.07, y + 0.3, 0.375, 0.012, 0.38, 0.01, 0x55585a);
   for (const sd of [-1, 1]) K.dbox(r, s + sd * 0.32, y - 0.02, 0.2, 0.04, 0.04, 0.4, 0x44474a);
   K.dbox(r, s + 0.36, y - 0.25, 0.05, 0.025, 0.5, 0.025, 0x3a3c3e);
+}
+
+// window glass: a darker lower half (interior) and a lighter reflective upper half; curtains sometimes
+function glass(K, r, s, y, ww, wh) {
+  const h = K.hash(s * 2.1, r.line, 44), tone = [0x2c3642, 0x3a4652, 0x252d36, 0x44505c][Math.floor(h * 4)];
+  K.dbox(r, s, y - wh * 0.2, 0.008, ww, wh * 0.6, 0.016, 0x1a1e24);
+  K.dbox(r, s, y + wh * 0.3, 0.009, ww, wh * 0.4, 0.016, tone);
+  if (K.hash(s, r.line, 45) < 0.35) {
+    const cc = [0xd8cdb8, 0xb86a4a, 0x8a9ab0, 0xe8e0d0, 0x6a8a6a][Math.floor(K.hash(s, r.line, 46) * 5)];
+    const half = K.hash(s, r.line, 47) < 0.5;
+    K.dbox(r, s + (half ? -ww * 0.25 : 0), y, 0.012, half ? ww * 0.45 : ww * 0.9, wh * 0.92, 0.012, cc);
+  }
+}
+
+// ---------- ceiling light fittings in roofed areas (unlit glow strips + housings) ----------
+function ceilingLights(K) {
+  const { ctx } = K, { def, I } = ctx;
+  for (let z = 1; z < def.h - 1; z++) for (let x = 1; x < def.w - 1; x++) {
+    if ((x % 6) !== 3 || (z % 6) !== 3) continue;
+    if (ctx.wall(x, z)) continue;
+    const i = I(x, z), rf = def.roof[i];
+    if (rf <= 0 || rf - def.height[i] < 3) continue;
+    const alongX = K.hash(Math.floor(x / 18), Math.floor(z / 18), 190) < 0.5;
+    const cx = x + 0.5, cz = z + 0.5;
+    if (alongX) { K.details.box(1.3, 0.08, 0.3, cx, rf - 0.05, cz, 0x55585a); K.glow.box(1.2, 0.02, 0.18, cx, rf - 0.1, cz, 0xf4f2e8); }
+    else { K.details.box(0.3, 0.08, 1.3, cx, rf - 0.05, cz, 0x55585a); K.glow.box(0.18, 0.02, 1.2, cx, rf - 0.1, cz, 0xf4f2e8); }
+  }
 }

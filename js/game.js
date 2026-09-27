@@ -93,7 +93,7 @@ export class Game {
       for (const k of ['roundsToWin', 'startMoney', 'friendlyFire', 'roundTime']) if (opts[k] !== undefined) this.rules[k] = opts[k];
     }
     this.diff = DIFFICULTY[opts.difficulty] || DIFFICULTY.normal;
-    this.mapDef = getMap(opts.map || 'dust2');
+    this.mapDef = getMap(opts.map || 'sirocco');
     W.setMap(this.mapDef);
     this.mapObjs = buildMap(scene, this.mapDef, opts.quality);
     prewarmWeapons();
@@ -735,6 +735,7 @@ export class Game {
   }
 
   dispose() {
+    this.mapObjs.dispose?.();
     this.grenades.clear();
     for (const a of this.agents) a.char.dispose();
   }
