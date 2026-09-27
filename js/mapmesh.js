@@ -157,12 +157,12 @@ export function buildMap(scene, def, quality = 'medium') {
   }
 
   // ---------- roofs: ceilings, lintels over doorways, roof tops ----------
-  const ceilName = TR.ceiling || 'ceiling', lintel = TR.lintel || T.walls[0];
+  const ceilName = TR.ceiling || 'concrete_light', lintel = TR.lintel || T.walls[0];
   for (let z = 0; z < h; z++) for (let x = 0; x < w; x++) {
     if (wall(x, z)) continue;
     const rf = roof(x, z);
     if (rf <= 0) continue;
-    const cs = 0.8 * Math.max(1, INDOOR);
+    const cs = 1.5 * Math.max(1, INDOOR);          // ceilings only see the dim ground bounce: lift them
     S(ceilName).quad(V(x, rf, z), V(x + 1, rf, z), V(x + 1, rf, z + 1), V(x, rf, z + 1), 0xffffff, [x, z, x + 1, z, x + 1, z + 1, x, z + 1], [cs, cs, cs, cs]);
     const topY = Math.max(T.wallH ?? 6, rf + 0.6);
     S(TR.roofTop || T.walls[0]).quad(V(x, topY, z + 1), V(x + 1, topY, z + 1), V(x + 1, topY, z), V(x, topY, z), 0xffffff, [x, z + 1, x + 1, z + 1, x + 1, z, x, z], [0.85, 0.85, 0.85, 0.85]);
@@ -267,7 +267,7 @@ export function buildMap(scene, def, quality = 'medium') {
         break;
       }
       case 'silo': {
-        const m = S(p.surf || 'painted_concrete');
+        const m = S(p.surf || 'concrete_light');
         m.wcyl(p.r, p.r, p.h, p.x, p.y + p.h / 2, p.z, 0xd8dcdf, 28);
         m.wcyl(p.r * 0.2, p.r, p.r * 0.45, p.x, p.y + p.h + p.r * 0.225, p.z, 0xd8dcdf, 28);
         for (let k = 0; k < 4; k++) details.cyl(p.r + 0.06, p.r + 0.06, 0.22, p.x, p.y + 2 + k * 3.6, p.z, 0x6a6e72, 28);

@@ -23,3 +23,11 @@ node tools/solve-grips.mjs pistol     # just one
 ```
 
 This needs Playwright. A weapon missing from `grips.json` is fitted at draw time instead, using the older ellipse fitter in `js/fparms.js`.
+
+## Map assets (`fetch_textures.py`, `propconv.mjs`, `skyconv.py`)
+
+All map textures, props and skies are CC0 from [Poly Haven](https://polyhaven.com), fetched through its public API (no login).
+
+- **Textures:** `python3 tools/fetch_textures.py` downloads each surface's colour (1024 px) and OpenGL normal map (512 px). The real-world tile size of each one (from the asset's dimensions) goes into `SURF` in `js/mapassets.js`, and a per-surface gain (`GAIN`) brings every photo's average albedo into a realistic range.
+- **Props:** download the 1k glTF of each model (`/files/<id>` → `gltf.1k`), then `RAW=<dir> OUT=assets/props node tools/propconv.mjs`. It keeps only the chosen nodes (for assets that ship several variants side by side), bakes node transforms, bottom-centres the prop, drops the roughness/metal/AO maps, simplifies to a triangle budget with meshoptimizer, shrinks the textures and quantizes the vertices. Afterwards regenerate `js/maps/propsizes.js` from `assets/props/props.json` (sizes are used for collision footprints).
+- **Skies:** download a 2k `.hdr` of a "pure sky" HDRI, then `python3 tools/skyconv.py <file>.hdr`. It tone-maps the upper hemisphere into a 2048 px JPG and measures the sun's azimuth, elevation and colour, which go into `js/maps/skies.js` so the in-game sun and shadows match the photo.

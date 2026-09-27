@@ -19,10 +19,10 @@ export default function sirocco() {
       trim: {
         cornice: 'sandstone', sill: 'plaster_white', base: 'stone_rubble', quoin: 'sandstone', drift: 'sirocco_sand',
         coping: 'sandstone', roofTop: 'plaster_beige', lintel: 'sandstone', lowwall: 'sandbrick', ledge: 'sandbrick',
-        frame: 'wood', doorframe: 'sandstone', infill: 'sandbrick', arch: 'sandstone', ceiling: 'ceiling', skirting: 'stone_rubble',
+        frame: 'wood', doorframe: 'sandstone', infill: 'stone_rubble', arch: 'sandstone', ceiling: 'plaster_beige', skirting: 'stone_rubble',
         patches: { sirocco_ground: 'sirocco_sand', sirocco_sand: 'sirocco_ground', pavement_red: 'sirocco_sand', cobble: 'sirocco_sand' }, patchDensity: 0.25,
       },
-      fogNear: 90, fogFar: 300, bounce: 0xa89070, dust: 0xd0b88a, wallH: 7, sunI: 2.6, hemiI: 2.2, indoor: 0.85,
+      fogNear: 80, fogFar: 255, bounce: 0xa89070, dust: 0xd0b88a, wallH: 7, sunI: 2.6, hemiI: 2.2, indoor: 0.85,
       tints: [0xffffff, 0xf4e8d8, 0xe6dccb, 0xfff2de, 0xddd3c4, 0xf2e2ca, 0xfaf4ea, 0xe9d9bf],
       surfTint: { cobble: 0xe2d2b4, pavement_red: 0xf0e2cc },
     },
@@ -73,8 +73,8 @@ export default function sirocco() {
   m.arch(78, 51.5, 'z', 6, 6.4);
 
   // lower tunnels: covered passage from mid west toward the tunnels
-  m.floor(26, 84, 70, 90, 0, MAT.CONCRETE).roofed(26, 84, 69, 90, 3.6);
-  m.floor(66, 84, 70, 90, 0, MAT.CONCRETE);
+  m.floor(26, 84, 70, 90, 0, MAT.DIRT).roofed(26, 84, 69, 90, 3.6);
+  m.paint(30, 85, 66, 89, MAT.STONE);
   for (const x of [32, 42, 52, 62]) m.prop('lamp', x + 0.5, 87.5, { y: 3.55, hang: true });
   m.crates(40, 89, 41, 90, 1).crates(56, 84, 56, 85, 1);
   m.arch(70.5, 87.5, 'x', 7, 6.4);
@@ -124,8 +124,8 @@ export default function sirocco() {
   // =====================================================================
   // TUNNELS
   // =====================================================================
-  m.floor(14, 50, 25, 73, 0, MAT.CONCRETE).roofed(14, 52, 25, 73, 3.6);        // B tunnel exit
-  m.floor(14, 74, 25, 102, 0, MAT.CONCRETE).roofed(14, 74, 25, 100, 3.6);      // upper tunnels
+  m.floor(14, 50, 25, 73, 0, MAT.DIRT).roofed(14, 52, 25, 73, 3.6);        // B tunnel exit
+  m.floor(14, 74, 25, 102, 0, MAT.DIRT).roofed(14, 74, 25, 100, 3.6);      // upper tunnels
   m.crates(22, 60, 23, 61, 1).crates(15, 79, 16, 80, 1).crates(22, 92, 23, 92, 1);
   for (const z of [56, 66, 78, 90]) m.prop('lamp', 19.5, z + 0.5, { y: 3.55, hang: true });
   m.arch(20, 49.5, 'z', 12, 7);
@@ -198,6 +198,12 @@ export default function sirocco() {
   m.floor(98, 27, 107, 29, AS, MAT.STONE);
   m.arch(103, 19.5, 'x', 15, 9.6);
 
+  // street furniture and clutter against the walls
+  m.wallModel('utility_box_w', 61, 152).wallModel('utility_box', 58, 150).wallModel('cardboard', 100, 146, { solid: false });
+  m.wallModel('crate_big', 136, 132, { rot: 0 }).wallModel('cardboard', 138, 132, { solid: false }).wallModel('sack', 139, 132, { solid: false });
+  m.wallModel('utility_box', 45, 30).wallModel('cardboard', 8, 30, { solid: false }).wallModel('cardboard', 8, 31, { solid: false, scale: 0.9 });
+  m.wallModel('utility_box_w', 141, 95).wallModel('utility_box', 71, 60).wallModel('crate_big', 93, 8).wallModel('cardboard', 90, 8, { solid: false });
+  m.wallModel('crate_big', 153, 30).wallModel('power_box', 97, 9, { y: 1.3, solid: false });
   // signs
   m.prop('sign', 70.01, 100, { text: 'A', arrow: 'e', y: 2.2, face: 'e' });
   m.prop('sign', 85.99, 96, { text: 'B', arrow: 'w', y: 2.2, face: 'w' });

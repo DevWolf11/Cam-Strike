@@ -18,14 +18,14 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const STYLES = {
   desert: {
     win: { w: [0.8, 1.1], h: [1.1, 1.5], gap: [2.4, 4.4], shutClosed: 0.35, shutOpen: 0.3, grille: 0.35, bricked: 0.08, arch: 0.12, first: 3.7, floor: 3.3 },
-    door: { every: [7, 13], w: [1.1, 1.4], h: [2.2, 2.5], arch: 0.3, metal: 0.2, gate: 0.06 },
+    door: { every: [7, 13], w: [1.1, 1.4], h: [2.2, 2.5], arch: 0.3, metal: 0.2, gate: 0.06 }, canopy: 0.15,
     parapet: 0.55, quoins: true, band: 0.45, plinth: 0.65, pipes: 0.35, ac: 0.3, lamps: 0.25, cables: 0.45, shop: 0.18,
     posters: 0.03, rooftop: 0.55, drift: 0.85, lamp: 'wall_lamp', shutterTints: [0xffffff, 0x9fb8c8, 0xb8c89f, 0xd8c0a0, 0x8aa0b8],
     awnings: [0x9a3b2c, 0x2f6d8a, 0x8a6a2a, 0x3f6f3a],
   },
   medina: {
     win: { w: [0.9, 1.2], h: [1.4, 1.8], gap: [2.6, 4.2], shutClosed: 0.3, shutOpen: 0.4, grille: 0.25, bricked: 0.04, arch: 0.45, first: 3.8, floor: 3.3 },
-    door: { every: [6, 11], w: [1.2, 1.5], h: [2.3, 2.7], arch: 0.6, metal: 0.12, gate: 0.05 },
+    door: { every: [6, 11], w: [1.2, 1.5], h: [2.3, 2.7], arch: 0.6, metal: 0.12, gate: 0.05 }, canopy: 0.35,
     parapet: 0.7, quoins: false, band: 0.7, tileBand: true, plinth: 0.8, pipes: 0.25, ac: 0.25, lamps: 0.35, cables: 0.4, shop: 0.25,
     balcony: 0.28, plants: 0.35, posters: 0.02, rooftop: 0.6, drift: 0.35, lamp: 'lantern', shutterTints: [0x7fa8c8, 0x6f9a7a, 0xffffff, 0xc8a878, 0x5f7fa8],
     awnings: [0x2f7d6a, 0xb0442f, 0x7a3a8a, 0x2f5c9a, 0xc08a2a],
@@ -58,9 +58,10 @@ export function buildKit(ctx) {
   if (!low) { rooftops(K, runs); cables(K, runs); }
   ledges(K);
   if (T.ceilingLights) ceilingLights(K);
+  if (T.facade === 'desert' || T.facade === 'medina') ceilingBeams(K);
   drifts(K, runs);
   patches(K);
-  if (!low) rubble(K, runs);
+  if (!low) { rubble(K, runs); manholes(K); }
   K.finish();
 }
 
@@ -305,6 +306,7 @@ function facadeRun(K, r, low) {
     if (clearAt(s, 0.4)) K.model(r, 'vent_fan', s, r.nb + 2.8 + K.R(r, 65) * Math.max(0, tall - 4.5), 0.0);
   }
   if (st.ducts && tall > 5 && len > 5 && K.R(r, 66) < st.ducts) duct(K, r);
+  if (st.ducts && tall > 3 && len > 3 && K.R(r, 69) < 0.2) { const s = along(70); if (clearAt(s, 0.8)) K.model(r, 'pipes', s, r.nb, 0.15); }
   if (st.ladders && tall > 4.5 && K.R(r, 67) < st.ladders) { const s = along(68); if (clearAt(s, 0.5)) ladder(K, r, s); }
   if (st.posters && tall > 3) {
     for (let s = r.s0 + 0.8; s < r.s1 - 0.8; s += 1.6) {
@@ -335,9 +337,11 @@ function window_(K, r, s, y, ww, wh, fl) {
   const tint = st.shutterTints[Math.floor(K.hash(s, r.line, 35) * st.shutterTints.length)];
   const arch = K.hash(s, r.line, 36) < W.arch;
   if (h < W.bricked) {
-    // bricked-up window: sill, lintel and an infill patch
-    K.box(r, S(trim('infill', 'sandbrick')), s, y, 0.015, ww, wh, 0.03);
+    // bricked-up window: a recessed rubble infill between a sill and a lintel
+    K.dbox(r, s, y, 0.004, ww + 0.06, wh + 0.06, 0.008, 0x4a4238);
+    K.box(r, S(trim('infill', 'stone_rubble')), s, y, 0.012, ww, wh, 0.02, 0xd8d0c4);
     K.box(r, sill, s, y - wh / 2 - 0.05, 0.06, ww + 0.25, 0.1, 0.12);
+    K.box(r, sill, s, y + wh / 2 + 0.1, 0.05, ww + 0.3, 0.2, 0.1);
     return;
   }
   // glass: dark interior with a sky reflection gradient, some with curtains drawn
@@ -372,14 +376,14 @@ function window_(K, r, s, y, ww, wh, fl) {
   else if (st.plants && K.hash(s, r.line, 40) < st.plants) K.model(r, 'pot_clay', s + (K.hash(s, r.line, 41) - 0.5) * ww * 0.5, y - wh / 2, 0.12, 0, 0.9);
 }
 
-function archOver(K, r, s, y, ww, surfName) {
+function archOver(K, r, s, y, ww, surfName, fill = 0x151a20) {
   // semicircular arch from segments + keystone
   const n = 9, R = ww / 2 + 0.08, b = K.S(surfName);
   for (let i = 0; i < n; i++) {
     const a = Math.PI * (i + 0.5) / n, x = Math.cos(a) * R, yy = Math.sin(a) * R * 0.75;
     K.box(r, b, s + x, y + yy, 0.05, 0.22, 0.14, 0.1);
   }
-  K.dbox(r, s, y + R * 0.3, 0.008, ww * 0.8, R * 0.5, 0.016, 0x151a20);
+  if (fill !== null) K.dbox(r, s, y + R * 0.3, 0.008, ww * 0.8, R * 0.5, 0.016, fill);
 }
 
 function balcony(K, r, s, y, ww, tint) {
@@ -405,7 +409,7 @@ function door(K, r, s, dw, dh) {
   if (gate && h < gate && r.len > 5) {
     // big iron gate in a stone frame
     K.dbox(r, s, y0 + 1.46, 0.01, 2.9, 2.9, 0.02, 0x121416);
-    K.model(r, 'iron_gate', s, y0, 0.06);
+    K.model(r, 'iron_gate', s, y0, 0.08);
     K.box(r, stone, s, y0 + 3.05, 0.1, 3.5, 0.3, 0.2);
     return;
   }
@@ -421,7 +425,8 @@ function door(K, r, s, dw, dh) {
       if (K.hash(s, r.line, 29) < 0.6) glowAt(K, r, s, y0 + dh + 0.35, 0.12);
       return;
     }
-    K.model(r, K.hash(s, r.line, 28) < 0.4 ? 'shutter_door_g' : 'shutter_door', s, y0, 0.0, 0, Math.min(1.3, dw / 1.08));
+    K.dbox(r, s, y0 + 1.2, 0.008, 1.1, 2.4, 0.016, 0x15171a);
+    K.model(r, K.hash(s, r.line, 28) < 0.4 ? 'shutter_door_g' : 'shutter_door', s, y0, 0.16);
     return;
   }
   // wooden door with a stone frame (arched in some styles)
@@ -435,13 +440,19 @@ function door(K, r, s, dw, dh) {
     archOver(K, r, s, y0 + dh, dw, trim('doorframe', trim('sill', 'plaster_white')));
   } else K.box(r, stone, s, y0 + dh + 0.14, 0.07, dw + 0.5, 0.28, 0.14);
   K.box(r, stone, s, y0 + 0.025, 0.14, dw + 0.4, 0.05, 0.28);       // threshold (flat, walk-over)
+  if (st.canopy && K.hash(s, r.line, 32) < st.canopy) {
+    // little tiled canopy on two wooden brackets
+    const cw = dw + 0.9, cd = 0.8, cy = y0 + dh + (arch ? dw * 0.45 + 0.35 : 0.45), [x, z] = K.P(r, s, cd / 2 + 0.02), tilt = 0.38;
+    if (r.dx) K.S('roof_clay').wbox(cd, 0.06, cw, x, cy, z, 0xffffff, 0, 0, -r.dx * tilt); else K.S('roof_clay').wbox(cw, 0.06, cd, x, cy, z, 0xffffff, 0, r.dz * tilt, 0);
+    for (const sd of [-1, 1]) K.box(r, K.S('wood'), s + sd * (cw / 2 - 0.12), cy - 0.25, 0.3, 0.08, 0.08, 0.55);
+  }
   if (K.hash(s, r.line, 31) < 0.3) K.model(r, 'wall_light', s + dw / 2 + 0.4, y0 + dh + 0.1, 0.0);
 }
 
 function shopfront(K, r, s) {
   const { st } = K, y0 = r.nb;
   K.dbox(r, s, y0 + 0.95, 0.008, 2.1, 1.85, 0.016, 0x15171a);
-  K.model(r, K.hash(s, r.line, 50) < 0.45 ? 'shutter_window_g' : 'shutter_window', s, y0 + 0.05, 0.0);
+  K.model(r, K.hash(s, r.line, 50) < 0.45 ? 'shutter_window_g' : 'shutter_window', s, y0 + 0.05, 0.16);
   K.box(r, K.S(K.trim('sill', 'plaster_white')), s, y0 + 2.05, 0.08, 2.5, 0.2, 0.16);
   // awning
   const col = st.awnings[Math.floor(K.hash(s, r.line, 51) * st.awnings.length)], n = 6, aw = 2.8, ad = 1.4;
@@ -451,8 +462,8 @@ function shopfront(K, r, s) {
     if (r.dx) K.details.box(ad, 0.03, aw / n, x, y0 + 2.62, z, k % 2 ? col : 0xe8e0d0, 0, 0, -r.dx * tilt);
     else K.details.box(aw / n, 0.03, ad, x, y0 + 2.62, z, k % 2 ? col : 0xe8e0d0, r.dz * tilt, 0, 0);
   }
-  // shop sign board
-  K.box(r, K.S('wood'), s, y0 + 3.1, 0.05, 2.2, 0.45, 0.06, [0xd0c0a0, 0x7a9aba, 0xa0c090][Math.floor(K.hash(s, r.line, 52) * 3)]);
+  // painted shop sign board between the shutter box and the awning
+  K.box(r, K.S('plaster_white'), s, y0 + 2.32, 0.1, 2.0, 0.34, 0.05, [0xe8d8b8, 0xa8c8e8, 0xc8e0b0, 0xf0c8a8][Math.floor(K.hash(s, r.line, 52) * 4)]);
 }
 
 function rollupDoor(K, r, s, dw, dh) {
@@ -510,16 +521,69 @@ function ladder(K, r, s) {
   for (let y = y0 + 0.5; y < y1; y += 2) for (const sd of [-0.22, 0.22]) K.dbox(r, s + sd, y, o / 2, 0.04, 0.04, o, col);
 }
 
-// interiors (faces under a roof): skirting, lights, pipes
+// interiors (faces under a roof): skirting, wainscot, blind arcades, sconces, rugs, pipes, extinguishers
 function interiorRun(K, r) {
-  const len = r.len;
-  if (r.rf - r.nb < 2) return;
-  K.box(r, K.S(K.trim('skirting', K.trim('base', 'stone_rubble'))), r.s0 + len / 2, r.nb + 0.12, 0.02, len, 0.24, 0.04);
+  const len = r.len, hh = r.rf - r.nb, style = K.T.facade, old = style === 'desert' || style === 'medina', mid = r.s0 + len / 2;
+  if (hh < 2) return;
+  K.box(r, K.S(K.trim('skirting', K.trim('base', 'stone_rubble'))), mid, r.nb + 0.12, 0.02, len, 0.24, 0.04);
+  if (old && len >= 3 && hh > 2.8) {
+    // wainscot panelling with a moulded rail
+    K.box(r, K.S(K.trim('wainscot', 'wood')), mid, r.nb + 0.6, 0.015, len, 1.2, 0.03, 0xe0d0c0);
+    K.box(r, K.S(K.trim('sill', 'plaster_white')), mid, r.nb + 1.22, 0.035, len, 0.07, 0.07);
+  }
+  if (style === 'medina' && len >= 5 && hh > 3.6) {
+    // blind arcade: pilasters with shallow arches between them
+    const n = Math.max(1, Math.round(len / 3.6)), step = len / n, pil = K.S(K.trim('sill', 'sandstone'));
+    for (let k = 0; k <= n; k++) K.box(r, pil, r.s0 + k * step, r.nb + (hh - 0.3) / 2 + 1.25, 0.05, 0.32, hh - 1.55, 0.1);
+    for (let k = 0; k < n; k++) archOver(K, r, r.s0 + (k + 0.5) * step, r.rf - 1.1 - (step - 0.4) * 0.28, step - 0.45, K.trim('sill', 'sandstone'), null);
+  }
+  // sconces
+  if (len >= 3) {
+    for (let s = r.s0 + 1.5 + K.R(r, 91) * 2; s < r.s1 - 1; s += 6 + K.R(r, 92) * 3) {
+      const y = Math.min(r.rf - 0.7, r.nb + 2.4);
+      if (style === 'medina') { K.model(r, 'lantern', s, y - 0.2, 0.2); glowAt(K, r, s, y, 0.3); }
+      else if (style === 'desert') { K.dbox(r, s, y, 0.06, 0.16, 0.28, 0.12, 0x3a2e24); glowAt(K, r, s, y + 0.02, 0.13); }
+      else K.model(r, 'wall_light', s, y, 0.0);
+    }
+  }
+  // hanging rugs / cloths in the old quarter
+  if (old && len >= 4 && K.R(r, 93) < 0.3) {
+    const s = r.s0 + 1.5 + K.R(r, 94) * (len - 3), cols = [0x8a2a24, 0x2a4a7a, 0x7a5a1a, 0x5a2a5a, 0x2a6a4a];
+    const c1 = cols[Math.floor(K.R(r, 95) * 5)], c2 = cols[Math.floor(K.R(r, 96) * 5)];
+    K.dbox(r, s, r.nb + 1.9, 0.02, 1.3, 1.7, 0.02, c1);
+    K.dbox(r, s, r.nb + 1.9, 0.035, 1.0, 1.4, 0.01, c2);
+    K.dbox(r, s, r.nb + 1.9, 0.045, 0.6, 1.0, 0.01, c1);
+    K.dbox(r, s, r.nb + 2.78, 0.05, 1.45, 0.05, 0.05, 0x3a2a1a);
+  }
   if (K.st.pipes && K.R(r, 90) < 0.3 && len > 4) {
     const y = r.rf - 0.35;
-    const [x0, z0] = K.P(r, r.s0 + len / 2, 0.12);
+    const [x0, z0] = K.P(r, mid, 0.12);
     if (r.dx) K.details.cyl(0.07, 0.07, len, x0, y, z0, 0x6a6e72, 8, Math.PI / 2, 0, 0);
     else K.details.cyl(0.07, 0.07, len, x0, y, z0, 0x6a6e72, 8, 0, 0, Math.PI / 2);
+  }
+  if (!old && len >= 4 && K.R(r, 97) < 0.35) {
+    // fire extinguisher on a bracket with a sign above
+    const s = r.s0 + 1 + K.R(r, 98) * (len - 2), [x, z] = K.P(r, s, 0.12);
+    K.details.cyl(0.08, 0.08, 0.5, x, r.nb + 1.05, z, 0xb02018, 10);
+    K.details.cyl(0.03, 0.05, 0.1, x, r.nb + 1.35, z, 0x222222, 6);
+    K.dbox(r, s, r.nb + 1.85, 0.01, 0.3, 0.3, 0.01, 0xc02a20);
+  }
+}
+
+// exposed wooden ceiling beams in the old-quarter interiors
+function ceilingBeams(K) {
+  const { ctx } = K, { def, I } = ctx, wood = K.S('wood');
+  for (let z = 1; z < def.h - 1; z += 2) {
+    let x = 0;
+    while (x < def.w) {
+      const i = I(x, z);
+      if (ctx.wall(x, z) || def.roof[i] <= 0) { x++; continue; }
+      const rf = def.roof[i];
+      let x1 = x;
+      while (x1 + 1 < def.w && !ctx.wall(x1 + 1, z) && Math.abs(def.roof[I(x1 + 1, z)] - rf) < 0.01) x1++;
+      if (rf - def.height[i] > 2.6) wood.wbox(x1 - x + 1, 0.18, 0.2, (x + x1 + 1) / 2, rf - 0.09, z + 0.5, 0xc8b8a8);
+      x = x1 + 1;
+    }
   }
 }
 
@@ -658,6 +722,20 @@ function patches(K) {
     }
     if (!flat) continue;
     K.blob(name, x + 0.5 + (K.hash(x, z, 162) - 0.5), h0 + 0.008, z + 0.5 + (K.hash(x, z, 163) - 0.5), rad, 0.75);
+  }
+}
+
+// ---------- manhole covers on streets and yards ----------
+function manholes(K) {
+  const { ctx } = K, { def, I } = ctx;
+  for (let z = 4; z < def.h - 4; z += 7) for (let x = 4; x < def.w - 4; x += 7) {
+    const cx = x + Math.floor(K.hash(x, z, 200) * 5), cz = z + Math.floor(K.hash(x, z, 201) * 5);
+    if (K.hash(cx, cz, 202) > 0.16 || ctx.wall(cx, cz)) continue;
+    const i = I(cx, cz), m = def.mat[i];
+    if (def.roof[i] > 0 || [MAT.HIDDEN, MAT.CRATE, MAT.CONTAINER, MAT.LOWWALL, MAT.WOOD, MAT.METAL].includes(m)) continue;
+    let flat = true;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (ctx.wall(cx + dx, cz + dz) || Math.abs(ctx.hgt(cx + dx, cz + dz) - def.height[i]) > 0.01) flat = false;
+    if (flat) K.place('manhole', cx + 0.5, def.height[i] - 0.045, cz + 0.5, K.hash(cx, cz, 203) * 6.28);
   }
 }
 

@@ -25,7 +25,7 @@ export default function reactor() {
         patches: { concrete_floor: 'asphalt', asphalt: 'concrete_floor', concrete_light: 'concrete_floor' }, patchDensity: 0.15,
       },
       tints: [0xffffff, 0xf2f4f6, 0xe8ecef, 0xf6f2ea, 0xe2e6ea, 0xfaf8f4, 0xdfe4e8, 0xf0ece4],
-      fogNear: 90, fogFar: 300, bounce: 0x8c8c86, dust: 0xb8b8b0, wallH: 10, sunI: 2.2, hemiI: 2.1, indoor: 1.25, ceilingLights: true,
+      fogNear: 80, fogFar: 255, bounce: 0x8c8c86, dust: 0xb8b8b0, wallH: 10, sunI: 2.2, hemiI: 2.1, indoor: 1.25, ceilingLights: true,
     },
   });
   const container = (x0, z0, x1, z1, color, stack = 1) => m.raise(x0, z0, x1, z1, 2.6 * stack, MAT.CONTAINER, color);
@@ -120,6 +120,10 @@ export default function reactor() {
   for (const x of [62, 80, 98, 116]) m.prop('lamp', x + 0.5, 15.5, { y: 5.9, hang: true });
   for (const z of [38, 52, 66]) m.prop('lamp', 125.5, z + 0.5, { y: 6.1, hang: true });
 
+  // plant clutter
+  m.wallModel('utility_box_w', 40, 132).model('barrier_low', 100.5, 115.5).model('barrier_low', 102.1, 115.5);
+  m.wallModel('power_box', 8, 40, { y: 1.2 + L, solid: false }).wallModel('cardboard', 100, 90, { solid: false }).wallModel('cardboard', 100, 91, { solid: false, scale: 0.9 });
+  m.wallModel('crate_big', 130, 15).wallModel('utility_box', 60, 5).wallModel('utility_box_w', 64, 5);
   m.prop('sign', 102.99, 71, { text: 'A', arrow: 'n', y: L + 2, face: 'w' });
   m.prop('sign', 119.01, 50, { text: 'B', arrow: 'n', y: L + 2, face: 'e' });
 

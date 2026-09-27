@@ -24,7 +24,7 @@ export default function stockpile() {
         patches: { concrete_floor: 'asphalt', asphalt: 'concrete_floor' }, patchDensity: 0.18,
       },
       tints: [0xffffff, 0xf0f2f4, 0xe6eaee, 0xfaf6f0, 0xe8e4dc, 0xf4f4f4, 0xdde2e6, 0xf8f0e8],
-      fogNear: 90, fogFar: 300, bounce: 0x8a8a84, dust: 0xb8b8b0, wallH: 9, sunI: 2.3, hemiI: 2.0, indoor: 1.1, ceilingLights: true,
+      fogNear: 80, fogFar: 255, bounce: 0x8a8a84, dust: 0xb8b8b0, wallH: 9, sunI: 2.3, hemiI: 2.0, indoor: 1.1, ceilingLights: true,
     },
   });
   const container = (x0, z0, x1, z1, color, stack = 1) => m.raise(x0, z0, x1, z1, 2.6 * stack, MAT.CONTAINER, color);
@@ -148,6 +148,11 @@ export default function stockpile() {
   container(12, 120, 15, 126, BLUE);
   m.model('covered_car', 38.5, 125.5, { rot: Math.PI / 2 }).model('jersey_barrier', 46, 131.5);
 
+  // yard clutter
+  m.wallModel('utility_box_w', 60, 135).model('barrier_low', 90.5, 124.5).model('barrier_low', 92.1, 124.5);
+  m.wallModel('cardboard', 98, 105, { solid: false }).wallModel('cardboard', 99, 105, { solid: false, scale: 0.85 }).wallModel('crate_big', 101, 105);
+  m.wallModel('power_box', 105, 40, { y: 1.2, solid: false }).wallModel('utility_box_w', 70, 8).wallModel('crate_big', 98, 10);
+  m.wallModel('sack', 30, 10, { solid: false }).model('barrier_low', 44.5, 64.5, { rot: Math.PI / 2 });
   m.prop('sign', 64.99, 75, { text: 'B', arrow: 'w', y: 2.4, face: 'w' });
   m.prop('sign', 95.01, 75, { text: 'A', arrow: 'e', y: 2.4, face: 'e' });
 

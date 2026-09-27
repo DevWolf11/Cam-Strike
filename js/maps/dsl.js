@@ -104,6 +104,17 @@ export function makeMap({ id, name, w, h, theme }) {
     m.block(x, z, x, z, b0 + 4, MAT.HIDDEN);
     return m;
   };
+  // Model standing flush against the wall next to open cell (cx, cz), facing out into the cell
+  m.wallModel = (model, cx, cz, opts = {}) => {
+    const size = PROP_SIZE[model];
+    for (const [dx, dz] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+      const nx = cx + dx, nz = cz + dz;
+      if (nx < 0 || nz < 0 || nx >= w || nz >= h || !m.solid[nz * w + nx]) continue;
+      const off = 0.5 - size[2] * (opts.scale || 1) / 2 - 0.02;
+      return m.model(model, cx + 0.5 + dx * off, cz + 0.5 + dz * off, { rot: Math.atan2(-dx, -dz), ...opts });
+    }
+    throw new Error(`${id}: no wall next to ${cx},${cz} for ${model}`);
+  };
   // Real prop model (assets/props). x, z are world meters (cell + 0.5 = centre); rot in radians.
   // solid: cells under the footprint become invisible blocks as tall as the prop (bullets and players stop).
   m.model = (model, x, z, { rot = 0, y, solid = true, h, scale = 1, color } = {}) => {

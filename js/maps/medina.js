@@ -9,21 +9,21 @@ export default function medina() {
     theme: {
       sky: 'golden', skyRot: -30, facade: 'medina', skyline: 'desert', skylineOpacity: 0.45,
       floors: {
-        [MAT.GROUND]: 'cobble', [MAT.PLATFORM]: 'patio', [MAT.SAND]: 'sirocco_sand', [MAT.TILES]: 'tile_pattern',
+        [MAT.GROUND]: 'cobble', [MAT.PLATFORM]: 'patio', [MAT.SAND]: 'sirocco_sand', [MAT.TILES]: 'patio',
         [MAT.ASPHALT]: 'asphalt', [MAT.CONCRETE]: 'concrete_floor', [MAT.METAL]: 'diamond_plate', [MAT.WOOD]: 'wood',
-        [MAT.PAVE]: 'patio', [MAT.STONE]: 'pavement_red', [MAT.DIRT]: 'sirocco_sand', [MAT.GRASS]: 'grass',
+        [MAT.PAVE]: 'pavement_red', [MAT.STONE]: 'patio', [MAT.DIRT]: 'sirocco_sand', [MAT.GRASS]: 'grass',
       },
       // 0 white plaster, 1 beige plaster, 2 red plaster, 3 rubble stone, 4 damaged plaster, 5 sandstone
       walls: ['plaster_white', 'plaster_beige', 'plaster_red', 'stone_rubble', 'plaster_damaged', 'sandstone'],
       trim: {
         cornice: 'plaster_white', sill: 'sandstone', base: 'stone_rubble', drift: 'sirocco_sand', coping: 'sandstone',
         roofTop: 'plaster_beige', lintel: 'plaster_white', lowwall: 'plaster_white', ledge: 'stone_rubble', frame: 'wood',
-        doorframe: 'sandstone', infill: 'stone_rubble', arch: 'sandstone', ceiling: 'planks_blue', skirting: 'tile_pattern',
-        patches: { cobble: 'sirocco_sand', patio: 'cobble', pavement_red: 'sirocco_sand' }, patchDensity: 0.18,
+        doorframe: 'sandstone', infill: 'stone_rubble', arch: 'sandstone', ceiling: 'plaster_white', skirting: 'tile_pattern', wainscot: 'wood',
+        patches: { cobble: 'sirocco_sand', pavement_red: 'cobble' }, patchDensity: 0.18,
       },
       tints: [0xffffff, 0xfff2e2, 0xf6e6d2, 0xeef2f6, 0xffe8d6, 0xf2ead8, 0xe8eef0, 0xfff8ee],
       surfTint: { pavement_red: 0xf4e4d0 },
-      fogNear: 90, fogFar: 300, bounce: 0xb09078, dust: 0xc4b294, wallH: 7.5, sunI: 2.4, hemiI: 2.0, indoor: 0.9,
+      fogNear: 80, fogFar: 255, bounce: 0xb09078, dust: 0xc4b294, wallH: 7.5, sunI: 2.4, hemiI: 2.0, indoor: 0.9,
     },
   });
   const OLD = [0, 0, 0, 1, 1, 2, 3, 4, 5];
@@ -161,6 +161,11 @@ export default function medina() {
   m.crates(16, 52, 17, 53, 1);
   m.arch(23.5, 50.5, 'z', 18, 7.4);
 
+  // street furniture and clutter
+  m.wallModel('utility_box', 152, 70).wallModel('cardboard', 32, 52, { solid: false }).wallModel('cardboard', 32, 53, { solid: false, scale: 0.9 });
+  m.wallModel('crate_big', 10, 30).wallModel('utility_box_w', 90, 120).wallModel('power_box', 29, 64, { y: 2.1, solid: false });
+  m.model('picnic_table', 15.5, 146.5, { rot: Math.PI / 2 }).model('picnic_table', 138.5, 140, { rot: 0.1 });
+  m.model('chair', 136.6, 142.5, { rot: 0.5, solid: false }).model('chair', 140.2, 137.6, { rot: 3.4, solid: false });
   m.prop('sign', 105.99, 80, { text: 'A', arrow: 's', y: 2.2, face: 'w' });
   m.prop('sign', 125.01, 37, { text: 'B', arrow: 'w', y: 2.2, face: 'e' });
 

@@ -8,11 +8,11 @@ import { GLTFLoader } from '../lib/addons/GLTFLoader.js';
 // Surface name -> real-world width of one texture tile in meters (UVs are generated in meters).
 export const SURF = {
   sirocco_ground: 2, sirocco_sand: 2.53, sandstone: 3, plaster_beige: 3, adobe: 2, sandbrick: 2,
-  pavement_red: 2.15, patio: 2.15, cobble: 1.6, terracotta: 2.08, tile_pattern: 2.15, plaster_white: 2.23,
+  pavement_red: 2.15, patio: 2.15, cobble: 1.6, tile_pattern: 2.15, plaster_white: 2.23,
   plaster_damaged: 1.85, stone_rubble: 2.12, plaster_red: 2, asphalt: 3, concrete_floor: 3, concrete_wall: 2,
   factory_brick: 1.5, corrugated: 2.7, metal_sheet_red: 2, container_grey: 1.94, block_wall: 2, diamond_plate: 0.5,
-  rusty: 1, hangar_floor: 2, painted_concrete: 2, concrete_light: 2.71, factory_panel: 3, grey_plaster: 1,
-  anti_skid: 1.8, grass: 1, wood: 1.5, door_wood: 1, shutter: 1.9, roof_clay: 2.5, ceiling: 2, planks_blue: 1, crate: 1,
+  rusty: 1, concrete_light: 2.71, factory_panel: 3, grey_plaster: 1,
+  anti_skid: 1.8, grass: 1, wood: 1.5, door_wood: 1, shutter: 1.9, roof_clay: 2.5, crate: 1,
 };
 // Brightness gain per surface (linear), bringing each photo's average albedo into a realistic,
 // consistent range (measured: e.g. clay plaster averages 0.11, sandstone 0.30).
@@ -20,12 +20,12 @@ const GAIN = {
   adobe: 2.5, plaster_beige: 2.0, plaster_damaged: 1.45, sandstone: 1.2, stone_rubble: 1.2, sirocco_sand: 1.45,
   pavement_red: 1.9, patio: 1.05, cobble: 1.3, concrete_floor: 2.0, concrete_wall: 2.4, concrete_light: 1.1, asphalt: 1.25,
   block_wall: 3.0, corrugated: 2.0, factory_brick: 1.2, factory_panel: 1.25, metal_sheet_red: 2.2, diamond_plate: 1.0,
-  hangar_floor: 3.5, painted_concrete: 1.5, grey_plaster: 1.3, wood: 1.6, door_wood: 1.5, crate: 2.0, terracotta: 3.0,
-  tile_pattern: 2.4, plaster_red: 1.6, plaster_white: 0.95, shutter: 1.3, roof_clay: 1.8, ceiling: 1.4, planks_blue: 1.6,
+  grey_plaster: 1.3, wood: 1.6, door_wood: 1.5, crate: 2.0,
+  tile_pattern: 2.4, plaster_red: 1.6, plaster_white: 0.95, shutter: 1.3, roof_clay: 1.8,
   anti_skid: 1.4, container_grey: 0.85, sirocco_ground: 0.95,
 };
 // Normal map strength per surface (default 1)
-const NSCALE = { sirocco_sand: 0.7, plaster_beige: 0.8, plaster_white: 0.8, concrete_floor: 0.7, asphalt: 0.8, hangar_floor: 0.8, ceiling: 0.6, grass: 1.3, cobble: 1.3 };
+const NSCALE = { sirocco_sand: 0.7, plaster_beige: 0.8, plaster_white: 0.8, concrete_floor: 0.7, asphalt: 0.8, grass: 1.3, cobble: 1.3 };
 // Large-scale brightness variation per surface (breaks up visible tiling). Default 0.18.
 const MACRO = { container_grey: 0.1, crate: 0.08, diamond_plate: 0.12, door_wood: 0.08, shutter: 0.1 };
 
@@ -135,18 +135,55 @@ export async function loadMapAssets(def, onProgress) {
   await Promise.all(jobs.map((p) => p.then(() => onProgress?.(++done / jobs.length))));
 }
 
-// Every surface and prop a map references (theme palette + placed props + facade kit)
+// Models the facade kit may place for each style (mapkit.js), so they are preloaded too
+const KIT_MODELS = {
+  desert: ['wall_lamp', 'wall_light', 'shutter_door', 'shutter_door_g', 'shutter_window', 'shutter_window_g', 'iron_gate', 'pot_clay', 'manhole'],
+  medina: ['lantern', 'wall_light', 'shutter_door', 'shutter_door_g', 'shutter_window', 'shutter_window_g', 'iron_gate', 'pot_clay', 'manhole'],
+  industrial: ['security_light', 'wall_light', 'camera', 'vent_fan', 'shutter_door', 'shutter_door_g', 'pipes', 'manhole'],
+  facility: ['wall_light', 'security_light', 'camera', 'vent_fan', 'pipes', 'manhole'],
+};
+const PROP_MODELS = { lamp: ['hang_lamp', 'wall_light'], barrel: ['barrel_red', 'barrel_blue', 'barrel_steel'], car: ['covered_car'] };
+
+// Surfaces the facade kit uses directly for each style (besides the theme's trim)
+const KIT_SURFS = {
+  desert: ['rusty', 'wood', 'door_wood', 'plaster_white', 'sandstone', 'stone_rubble', 'roof_clay'],
+  medina: ['rusty', 'wood', 'door_wood', 'plaster_white', 'sandstone', 'stone_rubble', 'tile_pattern', 'roof_clay'],
+  industrial: ['rusty', 'shutter', 'grey_plaster', 'concrete_wall', 'concrete_light', 'plaster_white'],
+  facility: ['rusty', 'shutter', 'grey_plaster', 'concrete_wall', 'concrete_light', 'plaster_white'],
+};
+const PROP_SURFS = { doors: ['wood', 'door_wood'], beam: ['wood'], truckcab: ['rusty'], forklift: ['rusty'], arch: [] };
+
+// Every surface and prop a map actually uses: floor materials and wall surfaces present in its
+// grid, the theme's trim, the facade kit's own surfaces, and placed props.
 export function mapNeeds(def) {
-  const T = def.theme, surfaces = new Set(), props = new Set();
+  const T = def.theme, TR = T.trim || {}, surfaces = new Set(), props = new Set();
   const add = (n) => { if (n && SURF[n]) surfaces.add(n); };
-  for (const v of Object.values(T.floors || {})) add(v);
-  for (const v of T.walls || []) add(v);
-  for (const v of Object.values(T.trim || {})) add(v);
-  ['ceiling', 'crate', 'container_grey', 'door_wood', 'wood'].forEach(add);
-  for (const p of def.props) if (p.type === 'model') props.add(p.model);
-  for (const n of T.kitProps || []) props.add(n);
+  const floorOf = (m) => (m === MAT_CRATE ? 'crate' : m === MAT_CONTAINER ? 'container_grey' : m === MAT_LOWWALL ? (TR.lowwall || T.walls[0]) : (T.floors[m] || T.floors[0]));
+  const mats = new Set(), wallMats = new Set();
+  for (let i = 0; i < def.w * def.h; i++) {
+    if (def.solid[i]) wallMats.add(def.wallMat[i]);
+    else { mats.add(def.mat[i]); if (def.mat[i] === MAT_HIDDEN) mats.add(def.floorMat?.[i] ?? 0); }
+  }
+  mats.delete(MAT_HIDDEN);
+  for (const m of mats) add(floorOf(m));
+  add(T.floors[0]);
+  for (const i of wallMats) add(T.walls[i] || T.walls[0]);
+  for (const v of Object.values(TR)) if (typeof v === 'string') add(v);
+  for (const v of Object.values(TR.patches || {})) add(v);
+  if (!TR.ceiling) add('concrete_light');
+  for (const n of KIT_SURFS[T.facade] || []) add(n);
+  for (const p of def.props) {
+    if (p.type === 'model') props.add(p.model);
+    for (const n of PROP_MODELS[p.type] || []) props.add(n);
+    for (const n of PROP_SURFS[p.type] || []) add(n);
+    if (p.surf) add(p.surf);
+    if (p.type === 'silo' && !p.surf) add('concrete_light');
+  }
+  for (const n of KIT_MODELS[T.facade] || []) props.add(n);
   return { surfaces, props };
 }
+// grid material codes (see world.js MAT; duplicated so this module stays free of game imports)
+const MAT_CRATE = 1, MAT_LOWWALL = 2, MAT_CONTAINER = 3, MAT_HIDDEN = 9;
 
 // ---------- materials ----------
 // Shared tileable noise used to vary brightness over tens of meters (one texture for every surface)
