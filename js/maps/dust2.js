@@ -6,10 +6,11 @@ export default function dust2() {
   const m = makeMap({
     id: 'dust2', name: 'Dust II', w: 128, h: 128,
     theme: {
-      clouds: 0.35, cloud: 0xfff4e4, skyline: 'desert',
-      ground: 'sand', walls: ['sandstone', 'plaster', 'sandstone', 'metal', 'brick'],
-      sky: ['#5c9ad6', '#a6c8e6', '#ead9b4'], fog: 0xdcceb0, fogNear: 55, fogFar: 170,
-      sun: 0xffe2b0, sunPos: [60, 90, 30], hemi: [0xfff4e0, 0x8a7355], hemiI: 1.8, sunI: 1.7, wallH: 6, windows: true,
+      sky: 'clear', skyRot: 0, facade: 'desert', skyline: 'desert', skylineOpacity: 0.55,
+      floors: { [MAT.GROUND]: 'sirocco_ground', [MAT.PLATFORM]: 'pavement_red', [MAT.SAND]: 'sirocco_sand', [MAT.TILES]: 'patio', [MAT.ASPHALT]: 'asphalt', [MAT.CONCRETE]: 'concrete_floor', [MAT.METAL]: 'diamond_plate', [MAT.WOOD]: 'wood', [MAT.PAVE]: 'pavement_red', [MAT.STONE]: 'cobble', [MAT.DIRT]: 'sirocco_sand' },
+      walls: ['sandstone', 'plaster_beige', 'adobe', 'corrugated', 'sandbrick'],
+      trim: { cornice: 'sandstone', sill: 'plaster_white', base: 'stone_rubble', quoin: 'sandstone', drift: 'sirocco_sand', coping: 'sandstone', roofTop: 'plaster_beige', lintel: 'sandstone', lowwall: 'sandbrick', ledge: 'sandbrick', frame: 'wood', doorframe: 'sandstone', infill: 'sandbrick' },
+      fogNear: 80, fogFar: 260, bounce: 0x9a8468, dust: 0xd0b88a, wallH: 6,
     },
   });
 

@@ -6,7 +6,7 @@ export const CELL = 1;
 export const STEP = 0.45;       // max height an agent can walk up without jumping
 export const MAT = {
   GROUND: 0, CRATE: 1, LOWWALL: 2, CONTAINER: 3, PLATFORM: 4, TILES: 5, ASPHALT: 6,
-  CONCRETE: 7, METAL: 8, HIDDEN: 9, WOOD: 10, SAND: 11,
+  CONCRETE: 7, METAL: 8, HIDDEN: 9, WOOD: 10, SAND: 11, PAVE: 12, GRASS: 13, DIRT: 14, STONE: 15,
 };
 
 export const world = {
