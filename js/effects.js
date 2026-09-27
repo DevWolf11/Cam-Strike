@@ -72,7 +72,7 @@ export class Effects {
     this.sound = opts.sound || null;          // (point, height) -> { dist, pan, occl } for positional sounds
     this.quality = opts.quality || 'medium';
     const T = opts.theme || {};
-    this.dust = T.ground === 'concrete' ? 0xb8b8b0 : T.ground === 'cobble' ? 0xc4b294 : 0xd0b88a;
+    this.dust = T.dust ?? 0xd0b88a;
     this.shake = 0;
     this.tracers = []; this.puffs = []; this.flashes = []; this.fires = [];
 

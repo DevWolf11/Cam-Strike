@@ -9,6 +9,7 @@ import { input, initInput, consume, resetInput, releasePointer } from './input.j
 import { initAudio } from './audio.js';
 import { MAP_LIST, getMap } from './maps/index.js';
 import { renderMinimap } from './mapmesh.js';
+import { loadMapAssets, setAnisotropy } from './mapassets.js';
 import { layout, applyLayout, openEditor } from './layout.js';
 import { openLoadout } from './loadout.js';
 
@@ -17,7 +18,7 @@ const canvas = $('gl');
 const QUALITY = { low: 0.6, medium: 1, high: 1.5 };
 const DEFAULTS = {
   sens: 1, difficulty: 'normal', quality: 'medium', aimAssist: true, uiScale: 1, mapScale: 1,
-  mode: 'competitive', map: 'dust2',
+  mode: 'competitive', map: 'sirocco',
   custom: { tCount: 5, ctCount: 5, roundsToWin: 8, startMoney: 800, roundTime: 115, friendlyFire: true },
   loadout: { skins: {}, knifeType: 'classic', knifeSkin: 'factory' }, outfit: { T: 0, CT: 0 },
   name: 'Player' + Math.floor(100 + Math.random() * 900),
@@ -30,6 +31,11 @@ function load() {
   } catch { return structuredClone(DEFAULTS); }
 }
 function save() { try { localStorage.setItem('camstrike', JSON.stringify(settings)); } catch { /* storage unavailable */ } }
+
+// Maps were renamed in the map update: carry old saved choices over
+const LEGACY_MAPS = { dust2: 'sirocco', mirage: 'medina', cache: 'stockpile', nuke: 'reactor' };
+settings.map = LEGACY_MAPS[settings.map] || settings.map;
+if (!MAP_LIST.some((m) => m.id === settings.map)) settings.map = MAP_LIST[0].id;
 
 // ---------- Menu wiring ----------
 $('sens').value = $('pauseSens').value = settings.sens;
@@ -96,6 +102,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 // The sun never moves and the map never changes, so its shadow map is drawn once per match
 renderer.shadowMap.autoUpdate = false;
+setAnisotropy(renderer.capabilities.getMaxAnisotropy());
 const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 260);
 let scene = null, game = null, ctrl = null, hud = null, paused = false, running = false, lastTeam = 'T';
 // Dynamic resolution: if the device can't hold ~45 fps the render resolution drops in steps
@@ -161,9 +168,18 @@ function matchOpts(extra = {}) {
   };
 }
 
+// Photo textures, prop models and the sky for a map, with a progress bar
+async function prepareMap(id) {
+  const def = getMap(id);
+  $('loadName').textContent = def.name; $('loadBar').style.width = '0%';
+  $('loading').classList.remove('hidden');
+  try { await loadMapAssets(def, (p) => { $('loadBar').style.width = `${Math.round(p * 100)}%`; }); }
+  finally { $('loading').classList.add('hidden'); }
+}
+
 async function startMatch(team) {
   lastTeam = team;
-  await loadCharacterModel();
+  await Promise.all([loadCharacterModel(), prepareMap(settings.map)]);
   beginMatch((sc) => new Game(sc, camera, { ...matchOpts(), team, quality: $('quality').value, loadout: settings.loadout, outfit: settings.outfit }));
 }
 
@@ -292,6 +308,7 @@ function renderLobby(l) {
   $('lbHost').classList.toggle('hidden', !host);
   $('lbWait').classList.toggle('hidden', host);
   if (host) { $('lbMap').value = l.settings.map; $('lbBots').checked = l.settings.fillBots !== false; }
+  if (l.settings.map && getMap(l.settings.map)) loadMapAssets(getMap(l.settings.map)).catch(() => {});
 }
 document.querySelectorAll('[data-join]').forEach((b) => b.addEventListener('click', () => net?.setTeam(b.dataset.join)));
 $('lbMap').onchange = () => { settings.map = $('lbMap').value; save(); markMap(); net?.setSettings({ map: settings.map }); };
@@ -305,16 +322,21 @@ $('lbCopy').onclick = async () => {
 };
 $('lbStart').onclick = async () => {
   if (net?.role !== 'host') return;
-  await loadCharacterModel();
+  await Promise.all([loadCharacterModel(), prepareMap($('lbMap').value)]);
   if (net?.role !== 'host') return;
   const opts = matchOpts({ map: $('lbMap').value, fillBots: $('lbBots').checked });
   const roster = buildRoster(opts, net.humans());
   beginMatch((sc) => new Game(sc, camera, { ...opts, roster, quality: $('quality').value }));
   net.startMatch(game, opts);
 };
-function startClientMatch(roster, opts) {
+async function startClientMatch(roster, opts) {
+  // the host may already be playing: its events are queued by the net layer until the map is ready
+  net.loading = true;
+  try { await Promise.all([loadCharacterModel(), prepareMap(opts.map)]); } catch { /* play with whatever loaded */ }
+  if (!net) return;
+  net.loading = false;
   beginMatch((sc) => new ClientGame(sc, camera, { ...opts, roster, quality: $('quality').value }, net));
-  net.game = game;
+  net.attach(game);
 }
 function stopMatchToLobby() {
   running = false; paused = false; input.enabled = false;

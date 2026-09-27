@@ -32,21 +32,30 @@ Things to know:
 
 ## Maps
 
-Four maps modeled on the CS2 classics. Each has a 1m grid with real floor heights (stairs, ramps, raised sites, jumpable crates, low cover you can shoot over) and indoor areas with ceilings. Detail includes doors, windows, awnings, lamps, cars, containers, barrels and silos. The HUD shows the callout for where you're standing.
+Four original maps that play like the classics, rebuilt for the map update at CS2-like scale (160 x 160 m) with a lot more detail. Each has a 1m grid with real floor heights (stairs, ramps, raised sites, jumpable crates, low cover you can shoot over) and indoor areas with ceilings. The HUD shows the callout for where you're standing, and the bots know every map's routes, holds, plant spots and smokes.
 
-| Map | Layout |
-|---|---|
-| **Dust II** | Raised T spawn, Long A through long doors with Pit, Catwalk climbing out of Mid, Xbox, Mid doors, upper and lower tunnels to B, B doors, raised A site with ramps |
-| **Mirage** | T spawn east, Palace and A ramp to A, Connector and Jungle, raised CT Window over Mid, Apartments and Short to B, Market |
-| **Cache** | Container yard: Quad and Truck on A, Squeaky, Highway, Garage, White box in Mid, Z connector, Checkers, Sun room, B heaven |
-| **Nuke** | Two levels: the main level sits 2.4m up and B is a real lower floor, reached by Ramp room, the CT decon ramp and the vent from A. A is a tall hall with a Heaven catwalk. Outside yard with silos, Lobby, Hut, Squeaky |
+| Map | Setting | Layout |
+|---|---|---|
+| **Sirocco** | Sun-baked desert town at midday | Raised T spawn, Long through the covered long doors with the Pit, Catwalk climbing out of Mid, mid crates and Mid doors under a covered passage, upper and lower tunnels to B, B doors, a raised B window over the site, raised A site with ramps |
+| **Medina** | Whitewashed old quarter at golden hour | T spawn east, T ramp and A main, the Palace arcade over A, Connector and Jungle, a raised CT Window over Mid, Apartments and Short to B, the covered Market |
+| **Stockpile** | Industrial depot and container yard | Quad and Truck on A, Squeaky, Highway, the Garage from Mid into A main, White box, Z connector, Checkers, Sun room, B heaven |
+| **Reactor** | Power plant on two levels | The main level sits 2.4m up and B is a real lower floor, reached by the Ramp room, the CT decon ramp and the vent from A. A is a tall hall with a Heaven catwalk. Outside yard with silos, Lobby, Hut, Squeaky |
+
+What makes them detailed:
+
+- **Real materials.** Every surface is a photographed material (sandstone blocks, lime plaster, cobbles, clay tiles, cracked asphalt, corrugated iron, container steel...) with a normal map, tiled at its real-world size. A large-scale variation layer and patches of sand, dirt or asphalt keep big areas from looking repetitive.
+- **Real props.** Barrels, crates, covered cars, jersey barriers, generators, shelves, planters, benches, lamps, roller shutters, iron gates and more are real 3D models. Solid props block movement and bullets like walls do.
+- **Buildings, not boxes.** A facade kit dresses every wall run in the map's style: windows with frames, shutters, grilles and curtains, doors and shopfronts with awnings and signs, balconies, corner quoins, cornices and parapets, tile bands, AC units, lamps, drainpipes, ducts, ladders, meter boxes, posters, hazard stripes, rooftop water tanks, dishes and antennas, and cables strung across the streets. Interiors get skirting, wainscot, blind arcades, sconces, rugs, beams, strip lights and extinguishers. Buildings vary in height and colour.
+- **Real skies.** Each map has a photographed sky (a Poly Haven HDRI), and the sun's direction and colour are measured from the photo, so shadows and light match the sky.
+
+Maps load their textures, models and sky (about 4 to 5 MB per map) with a progress bar before the match; they're cached for offline play after that.
 
 ## Graphics
 
-Everything is generated in code, with no image files: textures are painted onto canvases when the map loads, and the sky, clouds and effects are built the same way.
+Maps use photographed materials, real prop models and photographed skies (see **Maps**). Effects, signs and posters are generated in code.
 
-- **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves), a sky dome with drifting clouds and a sun glow, a distant skyline for each map (desert town, industrial yard, power plant), filmic tone mapping and ambient occlusion baked into the map.
-- **Materials:** 512px textures with matching bump maps, so mortar lines, cobbles, planks and corrugated metal catch the light. Walls have a stone base band, and the maps carry posters, graffiti, drainpipes, AC units and rubble.
+- **Lighting:** a sun that casts real shadows (drawn once per match, since the map never moves) and matches the sky photo, lit interiors with light fittings, a faint distant skyline for each map, filmic tone mapping and ambient occlusion baked into the map.
+- **Materials:** 1024px colour textures with normal maps, tiled at real-world scale, brightness-matched so every material sits in a realistic range. Big static geometry is split into chunks so the parts behind you aren't drawn.
 - **Effects:** bullet holes, blood splatter and scorch marks that stay on walls and floors until the round ends, sparks and debris on impact, ejected shell casings, and starburst muzzle flashes that light up nearby walls. Smoke, fire and explosions are camera-facing billboards drawn in one batch per kind, with their textures generated from noise when the match loads:
   - **Smoke grenades** vent for about a second and a half. Lit, lumpy puffs burst out of the canister, slow down, pile up against walls and fill the space: a dome about 4 m wide and 5 m tall, the same size as the cloud that blocks sight. If you stand inside, the view greys out, but not your own gun.
   - **HE grenades and the bomb** explode as a white flash, then a churning fireball (an animated flipbook going from white-hot to orange to soot). The fireball cools into grey-brown smoke that rises and spreads, while a ring of dust rolls out along the ground, and sparks, debris, a scorch mark and camera shake follow.
@@ -63,8 +72,8 @@ Everything is generated in code, with no image files: textures are painted onto 
 
 | Setting | What you get |
 |---|---|
-| **Low** | No shadows or bump maps, 256px textures, reduced resolution. For older phones |
-| **Medium** | Sun shadows, bump maps, full detail, native resolution (default) |
+| **Low** | No shadows or normal maps, lighter facade detail, reduced resolution. For older phones |
+| **Medium** | Sun shadows, normal maps, full detail, native resolution (default) |
 | **High** | Softer and sharper shadows, sharper texture filtering, higher resolution |
 
 On every setting the game watches its frame rate. If your device can't keep up (below about 45 fps), it lowers the render resolution a step at a time, and raises it again when there's headroom. Add `?fixedres` to the URL to turn this off.
@@ -200,9 +209,11 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/main.js` | Boot, menus, renderer, main loop, pause, PWA install |
 | `js/config.js` | **All tuning:** weapons, grenades, economy, rules, bot difficulty |
 | `js/world.js` | Active map grid: collision with floor heights, bullet raycasts, line of sight and smoke, A* pathfinding |
-| `js/maps/*.js` | Map layouts written with a small builder (`dsl.js`): floors, walls, stairs, crates, roofs, zones, callouts, props and bot tactics |
-| `js/mapmesh.js`, `js/textures.js`, `js/geom.js` | Turn a map into merged meshes (about 20 draw calls) with procedural textures and bump maps, baked ambient occlusion, sun shadows, windows, doors, posters and props |
-| `js/sky.js` | Sky dome (gradient, sun, clouds from a prebaked noise texture) and the distant skyline |
+| `js/maps/*.js` | Map layouts written with a small builder (`dsl.js`): building lots, floors, stairs, crates, roofs, props with collision, zones, callouts and bot tactics; `skies.js` holds each sky's measured sun |
+| `js/mapmesh.js`, `js/geom.js` | Turn a map into chunked, merged meshes with baked ambient occlusion, instanced prop models, sun shadows, fog and lights |
+| `js/mapkit.js` | The facade kit: dresses wall runs, interiors and rooftops in each map's style |
+| `js/mapassets.js` | Loads a map's textures, prop models and sky before the match, and builds the surface materials |
+| `js/sky.js`, `js/textures.js` | Photo sky dome and the distant skyline; canvas textures for signs, site decals, posters, particles and fabric |
 | `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
 | `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
 | `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
@@ -222,6 +233,7 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/particles.js` | Billboard particles (smoke, flames, fireballs) and their generated textures |
 | `tools/gripsolve.js`, `tools/solve-grips.mjs` | Dev tool: solves the first-person grips against each weapon's mesh and bakes `assets/weapons/grips.json` (see `tools/README.md`) |
 | `tools/mapcheck.mjs` | Dev tool: `node tools/mapcheck.mjs out/` checks every map's paths and renders top-down PNGs |
+| `tools/propconv.mjs` | Dev tool: converts Poly Haven glTF models into the game's compact prop GLBs (see `tools/README.md`) |
 
 three.js r170 (including its GLTFLoader and SkeletonUtils add-ons in `lib/addons/`) and PeerJS 1.5.5 are vendored under the MIT license (`lib/three.LICENSE`, `lib/peerjs.LICENSE`). The SWAT, SAS and GIGN models and the locomotion animations (Pro Rifle Pack) come from Adobe Mixamo. The other character models were converted and optimised for the game. Some are licensed under [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/):
 
@@ -246,6 +258,11 @@ Weapon and first-person arm models, converted and optimised for the game (`asset
 - First-person arms: ["First Person arms"](https://skfb.ly/6WwNn) by DJMaesen
 - Classic knife and its motion: ["knife Animated"](https://skfb.ly/6XZJB) by DJMaesen (the knife mesh and the knife's path through the idle, slash and draw clips; the model's own arms aren't used)
 - Molotov: ["Molotov Cocktail"](https://sketchfab.com/3d-models/molotov-cocktail-e57a0fd669974a3dab7d3919bda9032c) by LiliumLetifer (the bottle's brand label was painted out and the model's flame sprites were left out; the flames are the game's own)
+
+Map textures, prop models and skies, all CC0 (public domain), from [Poly Haven](https://polyhaven.com), resized and converted for the game:
+- **Textures** (`assets/textures/`): sandstone cracks, sandy gravel 02, sandstone blocks 08, beige wall 002, clay plaster, white sandstone bricks 03, red sandstone pavement, patio tiles, cobblestone square, terracotta floor tiles, patterned terracotta tiling, plastered wall 02, damaged plaster, plaster stone wall 02, red plaster weathered, asphalt 02, concrete floor worn 001, concrete wall 006 and 008, factory brick, corrugated iron 02, box profile metal sheet, container side, concrete block wall, metal plate, rusty metal 02, hangar concrete floor, painted concrete, factory wall, grey plaster 02, anti-skid tiles, grass path 2, wood planks, wood shutter, rusty metal shutter, clay roof tiles 02, ceiling interior, blue painted planks. The crate face is composed from the wood planks texture.
+- **Models** (`assets/props/`): Barrel 01 and 02, barrel 03, wooden crate 01 and 02, cardboard box 01, concrete road barrier and barrier 02, covered car (recoloured), utility box 01 and 02, power box 01, street lamp 01 and 02, fire hydrant, metal trash can, old tyre, rollershutter door and window 01, large iron gate, metal jerrycan, industrial plastic container, cement bag, planter pot clay, ceramic pot, planter box 01, wooden picnic table, painted wooden bench, plastic monobloc chair 01, wooden table 02, security light, security camera 01, industrial wall lamp, hanging industrial lamp, modular airduct circular 01 (vent fan), modular industrial pipes 01, water manhole cover, wooden bucket 01, wooden lantern 01, steel frame shelves 01, portable generator, worn metal rack, compost bags, namaqualand boulder 02, stone fire pit, metal tool chest.
+- **Skies** (`assets/skies/`): Kloofendal 43d Clear (Pure Sky), Citrus Orchard Road (Pure Sky), Kloofendal 48d Partly Cloudy (Pure Sky), Sunflowers (Pure Sky).
 
 Sound effects, all CC0 (public domain), from [Freesound](https://freesound.org) and [Kenney](https://kenney.nl):
 - **Gunshots:** "9mm pistol shot" by michorvath, "Glock 19X" and "Heckler & Koch MP7 Suppressed" by areniporgen, "silenced pistol shot" by Clutvh, "Mossberg 500A - 1 shot and pump" by AnthonyChan0, "shotgun shoot" by MrGungus, two AK-47 recordings by serøutōnin--deprivəd, "FPS Sniper Shot" by qubodup, "Rifle Gun Shot 02" by LilMati.

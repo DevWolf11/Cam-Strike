@@ -190,6 +190,7 @@ export class NetClient {
     this.hooks = hooks;                  // { onLobby, onStart(roster, opts, pid), onEnd(), onClose(reason), onError }
     this.role = 'client';
     this.game = null; this.stT = 0; this.pending = [];
+    this.loading = false; this.evQueue = []; this.lastSnap = null;
   }
 
   join(code) {
@@ -220,8 +221,8 @@ export class NetClient {
     switch (m.t) {
       case 'lobby': this.hooks.onLobby?.(m.lobby); break;
       case 'start': this.hooks.onStart?.(m.roster.map((r) => ({ ...r, local: r.pid === m.you })), m.opts); break;
-      case 'snap': this.game?.applySnapshot(m); break;
-      case 'ev': if (this.game) for (const e of m.list) this.game.applyEvent(e); break;
+      case 'snap': if (this.game) this.game.applySnapshot(m); else if (this.loading) this.lastSnap = m; break;
+      case 'ev': if (this.game) for (const e of m.list) this.game.applyEvent(e); else if (this.loading) this.evQueue.push(...m.list); break;
       case 'ping': this.conn.send({ t: 'pong', ts: m.ts }); break;
       case 'end': this.game = null; this.hooks.onEnd?.(); break;
       case 'bye': this.closing = true; this.hooks.onClose?.('The host left the game.'); break;
@@ -230,6 +231,14 @@ export class NetClient {
 
   send(m) { if (this.conn?.open) this.conn.send(m); }
   setTeam(team) { this.send({ t: 'team', team }); }
+
+  // Start feeding a freshly built client game, replaying what arrived while the map loaded
+  attach(game) {
+    this.game = game;
+    for (const e of this.evQueue) game.applyEvent(e);
+    if (this.lastSnap) game.applySnapshot(this.lastSnap);
+    this.evQueue = []; this.lastSnap = null;
+  }
 
   tick(dt) {
     if (!this.game) return;

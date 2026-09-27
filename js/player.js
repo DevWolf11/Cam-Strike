@@ -418,7 +418,7 @@ export class PlayerController {
     this.envBuilt = true;
     const T = this.game.mapDef.theme, sc = new THREE.Scene();
     const geo = new THREE.SphereGeometry(10, 32, 16), pos = geo.attributes.position, cols = [];
-    const top = new THREE.Color(T.sky[0]), hor = new THREE.Color(T.sky[2]), gnd = new THREE.Color(T.hemi[1]).multiplyScalar(0.7), c = new THREE.Color();
+    const top = new THREE.Color(T.skyCols[0]), hor = new THREE.Color(T.skyCols[2]), gnd = new THREE.Color(T.hemi[1]).multiplyScalar(0.7), c = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const y = pos.getY(i) / 10;
       if (y >= 0) c.copy(hor).lerp(top, Math.sqrt(y)); else c.copy(hor).lerp(gnd, Math.min(1, -y * 4));

@@ -5,17 +5,24 @@ import * as THREE from '../lib/three.module.min.js';
 export class GeoBuilder {
   constructor() { this.pos = []; this.nor = []; this.uv = []; this.col = []; this.ind = []; this.count = 0; }
 
+  // uvScale: number, [su, sv], or 'world' (UVs projected from the world position in meters, per vertex normal)
   add(geo, matrix, color = 0xffffff, uvScale = 1) {
     const g = geo.index ? geo : geo;
     const p = g.attributes.position, n = g.attributes.normal, t = g.attributes.uv;
     const nm = new THREE.Matrix3().getNormalMatrix(matrix);
     const c = new THREE.Color(color ?? 0xffffff), vc = color === null ? g.attributes.color : null;   // null = keep the geometry's own colors
-    const v = new THREE.Vector3();
+    const v = new THREE.Vector3(), q = new THREE.Vector3();
+    const world = uvScale === 'world', su = Array.isArray(uvScale) ? uvScale[0] : uvScale, sv = Array.isArray(uvScale) ? uvScale[1] : uvScale;
     const base = this.count;
     for (let i = 0; i < p.count; i++) {
-      v.fromBufferAttribute(p, i).applyMatrix4(matrix); this.pos.push(v.x, v.y, v.z);
+      q.fromBufferAttribute(p, i).applyMatrix4(matrix); this.pos.push(q.x, q.y, q.z);
       v.fromBufferAttribute(n, i).applyMatrix3(nm).normalize(); this.nor.push(v.x, v.y, v.z);
-      if (t) this.uv.push(t.getX(i) * uvScale, t.getY(i) * uvScale); else this.uv.push(0, 0);
+      if (world) {
+        const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
+        if (ay >= ax && ay >= az) this.uv.push(q.x, q.z);
+        else if (ax >= az) this.uv.push(v.x > 0 ? -q.z : q.z, q.y);
+        else this.uv.push(v.z > 0 ? q.x : -q.x, q.y);
+      } else if (t) this.uv.push(t.getX(i) * su, t.getY(i) * sv); else this.uv.push(0, 0);
       if (vc) this.col.push(vc.getX(i), vc.getY(i), vc.getZ(i)); else this.col.push(c.r, c.g, c.b);
     }
     if (g.index) for (let i = 0; i < g.index.count; i++) this.ind.push(base + g.index.getX(i));
@@ -27,6 +34,18 @@ export class GeoBuilder {
   box(w, h, d, x, y, z, color, rx = 0, ry = 0, rz = 0) {
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1));
     return this.add(BOX(w, h, d), m, color);
+  }
+
+  // Box with world-projected UVs in meters (for textured architecture)
+  wbox(w, h, d, x, y, z, color = 0xffffff, ry = 0, rx = 0, rz = 0) {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1));
+    return this.add(BOX(w, h, d), m, color, 'world');
+  }
+
+  // Cylinder whose UVs run in meters around the circumference and up the side
+  wcyl(r0, r1, h, x, y, z, color = 0xffffff, seg = 12, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1));
+    return this.add(CYL(r0, r1, h, seg), m, color, [Math.PI * (r0 + r1), h]);
   }
 
   cyl(r0, r1, h, x, y, z, color, seg = 10, rx = 0, ry = 0, rz = 0) {
@@ -59,6 +78,14 @@ export class GeoBuilder {
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
     const m = new THREE.Matrix4().compose(A.add(Bv).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1));
     return this.add(CAPSULE(r, len, seg), m, color);
+  }
+
+  // Thin square beam between two points [x, y, z] (cheap alternative to segment())
+  beam(a, b, t, color) {
+    const A = new THREE.Vector3(...a), Bv = new THREE.Vector3(...b), d = new THREE.Vector3().subVectors(Bv, A), len = d.length();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    const m = new THREE.Matrix4().compose(A.add(Bv).multiplyScalar(0.5), q, new THREE.Vector3(t, len, t));
+    return this.add(BOX(1, 1, 1), m, color);
   }
 
   // Rounded box (bevelled on every edge)
@@ -125,6 +152,14 @@ function BOX(w, h, d) {
   const k = `${w},${h},${d}`;
   let g = boxCache.get(k);
   if (!g) { g = new THREE.BoxGeometry(w, h, d); boxCache.set(k, g); }
+  return g;
+}
+
+const cylCache = new Map();
+function CYL(r0, r1, h, seg) {
+  const k = `${r0},${r1},${h},${seg}`;
+  let g = cylCache.get(k);
+  if (!g) { g = new THREE.CylinderGeometry(r0, r1, h, seg); cylCache.set(k, g); }
   return g;
 }
 

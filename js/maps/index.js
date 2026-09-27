@@ -1,17 +1,17 @@
-import dust2 from './dust2.js';
-import mirage from './mirage.js';
-import cache from './cache.js';
-import nuke from './nuke.js';
+import sirocco from './sirocco.js';
+import medina from './medina.js';
+import stockpile from './stockpile.js';
+import reactor from './reactor.js';
 
-const builders = { dust2, mirage, cache, nuke };
+const builders = { sirocco, medina, stockpile, reactor };
 export const MAP_LIST = [
-  { id: 'dust2', name: 'Dust II', blurb: 'Long A, Catwalk, Tunnels' },
-  { id: 'mirage', name: 'Mirage', blurb: 'Palace, Window, Apartments' },
-  { id: 'cache', name: 'Cache', blurb: 'Quad, Garage, Checkers' },
-  { id: 'nuke', name: 'Nuke', blurb: 'Two levels, Heaven, Ramp' },
+  { id: 'sirocco', name: 'Sirocco', blurb: 'Long A, Catwalk, Tunnels' },
+  { id: 'medina', name: 'Medina', blurb: 'Palace, Window, Apartments' },
+  { id: 'stockpile', name: 'Stockpile', blurb: 'Quad, Garage, Checkers' },
+  { id: 'reactor', name: 'Reactor', blurb: 'Two levels, Heaven, Ramp room' },
 ];
 const built = {};
-export function getMap(id) { return (built[id] ||= builders[id]()); }
+export function getMap(id) { return (built[id] ||= (builders[id] || builders.sirocco)()); }
 export const MAPS = new Proxy({}, {
   get: (_, k) => (builders[k] ? getMap(k) : undefined),
   ownKeys: () => Object.keys(builders),
