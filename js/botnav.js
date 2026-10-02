@@ -626,6 +626,9 @@ function analyze(def) {
   }
   nav.timing = timing;
   nav.grid = G;
+  // only needed while analysing: free the visibility fields, keep compact copies of the distance fields
+  for (const site of Object.values(nav.sites)) { for (const m of site.mouths) { delete m.vis; delete m.visC; } delete site.behind; }
+  nav.dT = Float32Array.from(nav.dT); nav.dCT = Float32Array.from(nav.dCT); G.clear = nav.clear = Float32Array.from(G.clear);
   return nav;
 }
 

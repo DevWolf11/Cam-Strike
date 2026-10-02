@@ -41,7 +41,7 @@ export class TeamBrain {
     this.siteSeen = { A: new Set(), B: new Set() };
     this.callouts = [];
     this.t = 0; this.thinkT = 0; this.jobs.length = 0;
-    this.phase = 'setup'; this.rotated = null; this.retake = null; this.post = null; this.lastPlantCall = -9;
+    this.phase = 'setup'; this.rotated = null; this.retake = null; this.hunt = null; this.post = null; this.lastPlantCall = -9;
     this.fed = null; this.regroup = null;
     this.econ = this.decideEcon();
     this.plan = this.team === 'T' ? this.planT() : this.planCT();
@@ -528,6 +528,21 @@ export class TeamBrain {
         this.stageOn(c, main, 0);
       }
     }
+    // a human has the bomb and is heading for the other site: follow the bomb
+    if (c && !c.isBot && c.alive && this.phase === 'setup' && p.strat !== 'default' && p.other && g.time - (this.followT || 0) > 2) {
+      this.followT = g.time;
+      const lane = laneOf(this.nav, c.pos.x, c.pos.z), there = lane === 1 ? 'A' : lane === 2 ? 'B' : null;
+      if (there && there !== p.site) {
+        p.site = there; p.other = there === 'A' ? 'B' : 'A';
+        const routes = [...this.nav.sites[there].tRoutes].sort((x, y) => dist(x.mouth, c.pos) - dist(y.mouth, c.pos));
+        p.routes = routes; p.strat = 'execute'; p.fake = null; p.lurker = null;
+        p.groups = [{ route: routes[0], bots: this.aliveBots() }];
+        p.groups[0].bots.forEach((a, k) => this.stageOn(a, routes[0], k));
+        this.prepUtility(routes[0]);
+        p.execAt = Math.min(p.execAt, g.timer - 10);
+        this.say(this.aliveBots()[0], `Following the bomb to ${there}`, 2);
+      }
+    }
     // a default reads the map, then picks the emptier site
     if (p.strat === 'default' && !p.decided && left <= p.decideAt) {
       p.decided = true;
@@ -597,8 +612,9 @@ export class TeamBrain {
       for (const a of this.aliveBots()) if (a === b.carrier && a.ai.order?.type === 'plant') a.ai.order.anywhere = left < 20;
       if (p.lurker?.alive && p.lurker.ai.order?.stage && left < 35) this.entryOrder(p.lurker, p.routes[0], 4);
       // somebody has to plant: a human carrier gets told, bots carry on
-      if (b.carrier && !b.carrier.isBot && W.inZone(p.site, b.carrier.pos.x, b.carrier.pos.z) && g.time - this.lastPlantCall > 12) {
-        this.lastPlantCall = g.time; this.say(this.aliveBots()[0], 'Plant the bomb, we cover you', 2);
+      if (b.carrier && !b.carrier.isBot && g.time - this.lastPlantCall > 12) {
+        this.lastPlantCall = g.time;
+        this.say(this.aliveBots()[0], W.inZone(p.site, b.carrier.pos.x, b.carrier.pos.z) ? 'Plant the bomb, we cover you' : `Bring the bomb to ${p.site}!`, 2);
       }
     }
     // nothing planted, outnumbered and out of time: keep the guns
@@ -693,6 +709,12 @@ export class TeamBrain {
   thinkCT() {
     const g = this.g, b = g.bomb;
     if (b.state === 'planted') return this.thinkRetake();
+    // late in the round with the numbers: stop waiting for the last Ts and go find them
+    if (!this.hunt && g.timer < 55) {
+      const ts = this.enemiesAlive(), cts = this.members().filter((a) => a.alive).length;
+      if (ts && (ts === 1 ? cts >= 3 : cts >= ts + 3 && g.timer < 40)) this.startHunt();
+    }
+    if (this.hunt) return this.thinkHunt();
     // rotate on information: a site under clear pressure pulls the other site's players over
     const [hot, cold] = this.threat.A > this.threat.B ? ['A', 'B'] : ['B', 'A'];
     const sure = this.threat[hot] > 2.6 && this.threat[hot] > this.threat[cold] * 2 + 0.5;
@@ -715,6 +737,25 @@ export class TeamBrain {
       }
       if (movers.length) this.say(movers.find((a) => a !== stay) || movers[0], `Rotate ${hot}!`, 2, 'rot' + hot);
     }
+    // Ts piling up at an entrance: whoever holds it burns the doorway (or HEs the stack)
+    for (const a of this.aliveBots()) {
+      const o = a.ai.order;
+      if (o?.type !== 'hold' || !a.ai.arrived || !o.mouth || a.ai.nade || a.ai.target || a.ai.usedStop) continue;
+      const m = this.nav.sites[a.ai.site]?.mouths.find((q) => q.id === o.mouth);
+      if (!m || (a.nades.molotov <= 0 && a.nades.he <= 0)) continue;
+      let n = 0, cx = 0, cz = 0;
+      for (const [e, i] of this.intel) {
+        if (!e.alive || g.time - i.t > 2.5) continue;
+        const d = Math.hypot(i.x - m.x, i.z - m.z), tSide = (i.x - m.x) * m.dir.x + (i.z - m.z) * m.dir.z < 1;
+        if (d < 18 && tSide) { n++; cx += i.x; cz += i.z; }
+      }
+      if (n < 2 || Math.random() > g.diff.util) continue;
+      a.ai.usedStop = true;
+      const molly = a.nades.molotov > 0;
+      const tgt = molly ? { x: m.x - m.dir.x * 2, y: m.y, z: m.z - m.dir.z * 2 } : { x: cx / n, y: m.y, z: cz / n };
+      a.ai.nade = { type: molly ? 'molotov' : 'he', target: tgt, mode: 'ground', deadline: 3 };
+      this.say(a, molly ? `Molly at ${m.name}` : `Nade out at ${m.name}`, 1, 'stop' + m.id);
+    }
     // a CT whose angle got smoked over moves to another one on the same entrance
     for (const a of this.aliveBots()) {
       const o = a.ai.order;
@@ -722,6 +763,61 @@ export class TeamBrain {
       if (!W.smokeBlocks(a.pos.x, a.eyeY, a.pos.z, o.look.x, o.look.y, o.look.z)) continue;
       const alt = o.alts.find((h) => !W.smokeBlocks(h.x, h.y + 1.6, h.z, h.look.x, h.look.y, h.look.z));
       if (alt) setOrder(a, { ...o, pos: { x: alt.x, z: alt.z }, look: alt.look, low: alt.low, coverPt: alt.coverPt, alts: o.alts.filter((h) => h !== alt) });
+    }
+  }
+
+  startHunt() {
+    const nav = this.nav, bots = this.aliveBots();
+    // places the Ts wait or hide: their spawn, their staging spots, halfway down their routes
+    const pts = W.spawnPoints('T', 40).filter((_, i) => i % 8 === 0);
+    for (const r of nav.routes) {
+      if (r.team !== 'T') continue;
+      if (r.stage) pts.push({ x: r.stage.x, z: r.stage.z });
+      pts.push(routePoint(r, r.len * 0.45));
+    }
+    // one player stays on each site in case the last T goes for it
+    const anchors = new Set();
+    if (bots.length > 2) for (const k of Object.keys(nav.sites)) {
+      const c = nav.sites[k].center, near = bots.filter((a) => !anchors.has(a)).sort((x, y) => dist(x.pos, c) - dist(y.pos, c))[0];
+      if (near && dist(near.pos, c) < 30) anchors.add(near);
+    }
+    this.hunt = { pts, visited: new Set(), spent: new Set(), hunters: bots.filter((a) => !anchors.has(a)) };
+    for (const a of this.hunt.hunters) a.ai.huntPt = null;
+    this.note(`hunt with ${this.hunt.hunters.length}, ${anchors.size} anchoring`);
+    if (this.hunt.hunters.length) this.say(this.hunt.hunters[0], this.enemiesAlive() === 1 ? "One left, let's find them" : "They're hiding, let's hunt", 2);
+  }
+
+  thinkHunt() {
+    const g = this.g, H = this.hunt, b = g.bomb;
+    // the freshest thing we know about a living T
+    let info = null;
+    for (const [e, i] of this.intel) if (e.alive && g.time - i.t < 12 && (!info || i.t > info.t)) info = i;
+    let lead = info || (b.state === 'dropped' ? { x: b.pos.x, z: b.pos.z } : null);
+    // a lead someone has already walked up to (and found nothing) is used up
+    const key = lead && `${Math.round(lead.x / 4)},${Math.round(lead.z / 4)}`;
+    if (lead && H.hunters.some((a) => a.alive && dist(a.pos, lead) < 3)) H.spent.add(key);
+    if (lead && H.spent.has(key)) lead = null;
+    for (const a of H.hunters) {
+      if (!a.alive || a.ai.target || a.ai.nade) continue;
+      let p = lead;
+      if (!p) {
+        // nothing to go on: sweep the hiding spots, nearest unvisited first, each hunter its own
+        const cur = a.ai.huntPt;
+        if (a.ai.order?.until) continue;                          // trading a teammate, back to this after
+        if (cur && a.ai.order?.hunt && !a.ai.arrived) continue;
+        if (cur && a.ai.arrived) H.visited.add(cur);
+        const taken = new Set(H.hunters.map((o) => o.ai.huntPt));
+        let free = H.pts.filter((q) => !H.visited.has(q) && !taken.has(q));
+        if (!free.length) { H.visited.clear(); free = H.pts.filter((q) => !taken.has(q)); }
+        p = free.reduce((m, q) => (!m || dist(a.pos, q) < dist(a.pos, m) ? q : m), null);
+        if (!p) continue;
+        a.ai.huntPt = p;
+      } else {
+        a.ai.huntPt = null;
+        const o = a.ai.order;
+        if (o?.hunt && Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 6) continue;
+      }
+      setOrder(a, { type: 'go', pos: { x: p.x, z: p.z }, pace: lead && dist(a.pos, p) < 20 ? 'walk' : 'run', preaim: lead ? [{ x: p.x, y: (p.y ?? a.pos.y) + 1.2, z: p.z }] : undefined, hunt: true });
     }
   }
 
@@ -773,6 +869,19 @@ export class TeamBrain {
         setOrder(defuser, { type: 'defuse', pace: 'run', preaim, urgent: true });
         defuser.ai.waitT = bots.length > 1 ? 0.8 : 0;
         if (bots.length > 1) this.say(bots[0], 'Go in together, now!', 2);
+        // utility first: flashes over the site from where we gather, a smoke on the nastiest post-plant angle
+        let smoked = false;
+        for (const a of bots) {
+          if (Math.random() > g.diff.util) continue;
+          if (a.nades.flash > 0) {
+            const p = a.ai.retakePt || a.pos, f = 0.6;
+            a.ai.nade = { type: 'flash', target: { x: p.x + (b.pos.x - p.x) * f, y: b.pos.y + 2.4, z: p.z + (b.pos.z - p.z) * f }, mode: 'air', deadline: 3 };
+          } else if (a.nades.smoke > 0 && !smoked && R.spots[0]) {
+            smoked = true;
+            const s0 = R.spots[0];
+            a.ai.nade = { type: 'smoke', target: { x: (s0.x + b.pos.x) / 2, y: W.groundAt((s0.x + b.pos.x) / 2, (s0.z + b.pos.z) / 2), z: (s0.z + b.pos.z) / 2 }, mode: 'ground', deadline: 3 };
+          }
+        }
       }
     }
     if (R.phase === 'go' && b.defuser && b.defuser.isBot && !R.called) { R.called = true; this.say(b.defuser, 'Defusing, cover me', 2); }

@@ -32,7 +32,7 @@ Things to know:
 
 ## Maps
 
-Four original maps that play like the classics, rebuilt for the map update at CS2-like scale (160 x 160 m) with a lot more detail. Each has a 1m grid with real floor heights (stairs, ramps, raised sites, jumpable crates, low cover you can shoot over) and indoor areas with ceilings. The HUD shows the callout for where you're standing, and the bots know every map's routes, holds, plant spots and smokes.
+Four original maps that play like the classics, rebuilt for the map update at CS2-like scale (160 x 160 m) with a lot more detail. Each has a 1m grid with real floor heights (stairs, ramps, raised sites, jumpable crates, low cover you can shoot over) and indoor areas with ceilings. The HUD shows the callout for where you're standing, and the bots work out every map's routes, holds, plant spots and grenade lineups from its layout. The spawns can't see each other, so there's no sniping across the map at round start (Sirocco's mid doors are two staggered gates, and two containers stand across Stockpile's CT mid).
 
 | Map | Setting | Layout |
 |---|---|---|
@@ -117,7 +117,36 @@ Every living teammate has their name and a team-coloured marker above their head
 
 ## Bots
 
-Bots see within a field of view with real line of sight (smokes block it). They hear gunshots and footsteps, need time to react, and aim with an error that tightens over time. They fire in bursts and strafe between bursts, and a flashbang blinds them. Terrorists pick a site, split across routes, smoke and flash the entrances on the execute, plant, then guard the bomb. Counter-Terrorists hold both sites and mid, rotate on callouts, throw HE and molotovs at enemies who break line of sight, and retake and defuse after a plant. Difficulty (Easy, Normal, Hard) changes reaction time, aim, turn speed, field of view and how often they use grenades.
+The bots are built to play like people, not like aimbots with their accuracy turned down.
+
+**They learn each map from its layout.** The first time a map is played, the bots analyse its grid behind the loading screen (a fraction of a second). They work out:
+- walking distances from both spawns;
+- the distinct routes each side can take into each bombsite, and the chokepoint where each route enters it;
+- the spots defenders hold each entrance from, scored for cover, distance, angle and exposure to the other entrances;
+- where attackers can wait out of sight, where to plant, and grenade lineups.
+
+Lineups are found by simulating the game's own grenade physics, so a smoke lands where it was planned. Nothing is placed by hand, so a new map gets all of this for free (`node tools/botnavcheck.mjs` draws it).
+
+**They see and hear like players.**
+- **Sight.** Vision is a cone with real line of sight. Smokes block it and flashbangs blind it. An enemy far away is a few pixels tall, so it's only noticed near the crosshair.
+- **Hearing.** Footsteps, shots, reloads, grenade pins and bounces, and the bomb being planted or defused all make noise, muffled by walls.
+- **Memory and radio.** Bots remember where they last saw or heard each enemy and tell their team on the radio using the map's callouts ("Two at Long", "Bomb carrier at Mid", "He's at B Car, 34 HP"). The calls show on your HUD when bots are on your team, and reach friends on their team in online games.
+
+**They aim and fight like players.**
+- **Aim.** An enemy who appears takes a moment to react to, longer if he's far from where the bot was looking. The flick lands off by a share of its size and settles over time, leaving a slight tremor. Moving targets are tracked with a little lag, and recoil is pulled down.
+- **Fighting.** Bots put their crosshair on corners before they open up and stop before they shoot. They tap at range, spray up close and strafe between bursts in close fights. They step back into cover to reload, or when they're hurt and losing. They switch to the pistol when the rifle runs dry up close, and go for the trade when a teammate falls nearby.
+- **Holding angles.** Someone holding an angle for a long time loses some sharpness and glances at other angles, so a well-timed peek can catch them. Footsteps coming their way bring their focus back.
+
+**They play as teams.** Each side has a brain that decides the buy and the plan. The buy is a pistol round, eco, force or full buy, and rifles are dropped for teammates who can't afford one.
+- **Terrorists** choose a site and a strategy:
+  - an execute with smokes on the long angles, a pop flash and a molotov on the close corner;
+  - a default that spreads out, reads the map and hits the emptier site;
+  - a rush, a split from two sides, or a fake.
+
+  They wait out of sight, throw their utility from the lineup spots, close in, then go through together. If the first player in dies at a camped doorway, the others hold back, flash or burn the angle, and swing in pairs or switch to another way in. The bomb is planted at a covered spot. The post-plant is played from spread-out positions watching the bomb and the way in, and a defuse gets a molotov.
+- **Counter-Terrorists** cover every entrance of both sites, with anchors watching two at once. They molotov or HE a rush, rotate when the information says a site is being hit, and fall back from a lost site to retake it. On the retake they group up out of sight, flash in and smoke the nastiest angle, then the player with a kit defuses while the rest cover. If there's no time, they save. Late in a round they clearly have the numbers in, all but one player per site go and hunt the last Terrorists down: towards the last sighting, else through the spots Ts wait in.
+
+**Difficulty** (Easy, Normal, Hard) changes reaction time, how far off a flick lands and how fast it settles, tremor, tracking, recoil control, head-shot rate, and discipline (stopping before shooting). It also changes hearing, crosshair placement on corners, how often and how well they use grenades, and whether they turn away from flashes they see coming. In tests, a Hard player holding an angle beats a Normal one coming through it about 9 times in 10.
 
 Characters are real, fully textured and skinned models, one per outfit:
 
@@ -215,8 +244,11 @@ For a real APK, paste the Pages URL into [PWABuilder](https://www.pwabuilder.com
 | `js/mapassets.js` | Loads a map's textures, prop models and sky before the match, and builds the surface materials |
 | `js/sky.js`, `js/textures.js` | Photo sky dome and the distant skyline; canvas textures for signs, site decals, posters, particles and fabric |
 | `js/game.js` | Round flow, economy, shooting and hitboxes, knife, grenades, friendly fire and teamkill punishment, bomb |
-| `js/grenades.js` | Grenade physics and effects: HE, flashbang, smoke, molotov |
-| `js/bot.js` | Bot AI: perception, aiming, combat, grenade use, team strategy, buying |
+| `js/grenades.js` | Grenades in the match: HE, flashbang, smoke and molotov effects |
+| `js/nadephys.js` | Grenade flight in fixed 1/180 s steps (the same at any frame rate), shared by the game and the bots' lineup solver |
+| `js/bot.js` | One bot: sight, hearing and memory, the aim model, fighting, movement, pre-aiming corners, grenade throws, buying |
+| `js/botteam.js` | Team brains: economy, T strategies and executes, CT setups, rotations and retakes, shared intel, radio callouts |
+| `js/botnav.js` | Map analysis for the bots: routes, chokepoints, holds, staging, plant and post-plant spots, cover, grenade lineups |
 | `js/character.js` | Character skeleton, outfits, aim poses, ragdoll physics, procedural fallback models |
 | `js/mocap.js` | Loads the motion-capture locomotion and blends walk/run/idle/jump/crouch by speed and direction |
 | `js/skinned.js` | Loads the skinned character models and fits them to the skeleton each frame (aim + two-bone IK, finger grip) |

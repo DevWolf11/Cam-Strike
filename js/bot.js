@@ -9,6 +9,7 @@ import { solveThrow, coverSpot, EYE, HEAD } from './botnav.js';
 import { stepNade } from './nadephys.js';
 
 const TAU = Math.PI * 2, DEG = Math.PI / 180;
+let DT = 1 / 60;                     // this frame's dt (for timers in helpers that don't get it)
 const rand = (a, b) => a + Math.random() * (b - a);
 const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) * 2;
 const wrap = (a) => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
@@ -42,7 +43,7 @@ export function initBotRound(a, g) {
     reactT: 0, errY: 0, errP: 0, trY: 0, trP: 0, aimHead: false, disciplined: true,
     burst: 0, pauseT: 0, strafe: Math.random() < 0.5 ? 1 : -1, strafeT: 0, cover: null, coverT: -9,
     flash: null, avoid: null, scan: Math.random() * 6, preaim: null, preaimT: 0, preaimSkill: true,
-    nade: null, waitT: rand(0, 0.5), shiftT: rand(5, 10), killT: -9,
+    nade: null, waitT: rand(0, 0.5), shiftT: rand(5, 10), killT: -9, usedStop: false, infoT: g.time,
   };
 }
 
@@ -169,14 +170,20 @@ export function botsSeeThrow(g, d) {
   let T = 0;
   while (n.t < fuse && T < 3) { stepNade(n, 1 / 60); T += 1 / 60; }
   const P = n.pos, at = g.time + T;
+  // teammates know their own flashes are coming: anyone who'll be looking at it when it pops turns away
+  if (d.type === 'flash') {
+    g.botFlashes = (g.botFlashes || []).filter((f) => g.time < f.at + 1);
+    g.botFlashes.push({ x: P.x, y: P.y, z: P.z, at, team: d.agent.team });
+  }
   for (const b of g.agents) {
     if (!b.isBot || !b.alive || !b.ai) continue;
     const ai = b.ai, dist = Math.hypot(b.pos.x - P.x, b.pos.z - P.z);
     const mate = b.team === d.agent.team;
     if (d.type === 'flash') {
       if (dist > 26 || !W.hasLOS(b.pos.x, b.eyeY, b.pos.z, P.x, P.y, P.z, false)) continue;
-      let p = mate ? 0.95 : 0;
-      if (!mate) {
+      if (mate) continue;                       // handled when it's about to pop (look)
+      let p = 0;
+      {
         // does it see the grenade coming? (in view now)
         const dx = d.pos.x - b.pos.x, dz = d.pos.z - b.pos.z, dd = Math.hypot(dx, dz) || 1;
         const inView = (dx * -Math.sin(b.yaw) + dz * -Math.cos(b.yaw)) / dd > Math.cos(ai.D.fov * 0.5 * DEG);
@@ -348,7 +355,7 @@ function navigate(a, g, goal, cmd, pace = 'run', arriveR = 0.6) {
   cmd.speed = pace === 'walk' ? Math.min(a.w.speed, 2.9) : a.w.speed;
   if (dg < 1.6) cmd.speed *= 0.55;
   // stuck on something: search again, then try hopping over it
-  ai.stuckT += 1 / 60;
+  ai.stuckT += DT;
   if (ai.stuckT > 1) {
     if (Math.hypot(a.pos.x - ai.lastX, a.pos.z - ai.lastZ) < 0.4) { ai.path = null; if (++ai.stuckN > 1) cmd.jump = true; }
     else ai.stuckN = 0;
@@ -396,12 +403,18 @@ function look(a, g, dt, moving) {
     turnTo(a, yawTo(a.pos.x - ai.flash.x, a.pos.z - ai.flash.z), -0.2, dt, D.turnRate * 1.3, 14);
     return;
   }
+  for (const f of g.botFlashes || []) {
+    if (f.team !== a.team || now < f.at - 0.55 || now > f.at + 0.2 || Math.hypot(f.x - a.pos.x, f.z - a.pos.z) > 26) continue;
+    if (!W.hasLOS(a.pos.x, a.eyeY, a.pos.z, f.x, f.y, f.z, false)) continue;
+    turnTo(a, yawTo(a.pos.x - f.x, a.pos.z - f.z), -0.2, dt, D.turnRate * 1.3, 14);
+    return;
+  }
   let tx = null, ty = 0, tz = 0;
   const recent = ai.lostE && now - ai.lostT < 2.5 && ai.mem.get(ai.lostE);
   if (ai.hurtFrom && now - ai.hurtFrom.t < 1.2) { tx = ai.hurtFrom.x; ty = ai.hurtFrom.y + 1.4; tz = ai.hurtFrom.z; }
   else if (recent && ai.lostE.alive) { tx = recent.x; ty = recent.y + HEAD; tz = recent.z; }
   else if (ai.preaim) { tx = ai.preaim.x; ty = ai.preaim.y + HEAD; tz = ai.preaim.z; }
-  const heard = !tx && ai.heard && now - ai.heard.t < 2 && ai.heard.d < 30 && ai.heard.kind !== 'shot' ? ai.heard : null;
+  const heard = tx === null && ai.heard && now - ai.heard.t < 2 && ai.heard.d < 30 && ai.heard.kind !== 'shot' ? ai.heard : null;
   if (heard && ai.arrived && o?.look) {
     // steps coming from the angle we hold: stay on it, no wandering; from elsewhere: turn to them
     const hy = yawTo(heard.x - a.pos.x, heard.z - a.pos.z), ly = yawTo(o.look.x - a.pos.x, o.look.z - a.pos.z);
@@ -507,8 +520,16 @@ function doOrder(a, g, dt, cmd) {
         if (there) {
           ai.arrivedT += dt;
           a.crouching = !!o.crouch || (o.type === 'hold' && a.persona.crouchHold && !o.low && ai.arrivedT > 1.5);
-          // holding: every so often shift a step (a player doesn't stand frozen on one pixel)
-          if (o.type === 'hold' && o.coverPt && (ai.shiftT -= dt) <= 0) { ai.shiftT = rand(6, 12); }
+          // holding with cover beside you: now and then step into it and back out (resetting the angle,
+          // like a player does), more often the more restless the player
+          if (o.type === 'hold' && o.coverPt && !a.crouching && (ai.shiftT -= dt) <= 0) {
+            ai.shiftT = rand(7, 15) * (1.4 - a.persona.aggression * 0.6);
+            if (Math.random() < 0.6) ai.shift = g.time + rand(0.5, 0.9);
+          }
+          if (ai.shift && g.time < ai.shift) {
+            const dx = o.coverPt.x - a.pos.x, dz = o.coverPt.z - a.pos.z, d = Math.hypot(dx, dz);
+            if (d > 0.3) { cmd.x = dx / d; cmd.z = dz / d; cmd.speed = 2.6; }
+          }
         }
       }
     }
@@ -523,7 +544,9 @@ function doOrder(a, g, dt, cmd) {
 // ---------------------------------------------------------------- per frame
 export function updateBot(a, g, dt) {
   if (!a.alive || !a.ai) return;
+  DT = dt;
   const ai = a.ai, cmd = ai.cmd;
+  if (ai.inert) { g.moveAgent(a, 0, 0, 0, dt); return; }          // parked (test fixtures)
   if (g.phase === 'freeze' || g.phase === 'over') { a.crouching = false; g.moveAgent(a, 0, 0, 0, dt); return; }
   if ((ai.senseT -= dt) <= 0) { ai.senseT = 0.1; sense(a, g); }
   cmd.x = cmd.z = 0; cmd.speed = a.w.speed; cmd.stop = false; cmd.aimed = false; cmd.jump = false;
@@ -548,7 +571,7 @@ export function updateBot(a, g, dt) {
   }
 
   if (ai.target && a.blindT < 0.4) fight(a, g, dt, cmd);
-  else if (ai.nade) throwNade(a, g, dt, cmd);
+  else if (ai.nade && ai.waitT <= 0) throwNade(a, g, dt, cmd);
   else {
     if (a.scoped) a.scoped = false;
     if (ai.waitT > 0) { ai.waitT -= dt; look(a, g, dt, false); }
