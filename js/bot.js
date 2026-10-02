@@ -69,7 +69,7 @@ function sense(a, g) {
   for (const e of g.agents) {
     if (!e.alive || e.team === a.team) continue;
     const dx = e.pos.x - a.pos.x, dz = e.pos.z - a.pos.z, d = Math.hypot(dx, dz);
-    if (d > 125) continue;
+    if (d > 100 && e !== ai.target && !(ai.hurtBy === e && g.time - ai.hurtT < 0.5)) continue;     // a few pixels tall
     const cosA = (dx * fx + dz * fz) / (d || 1);
     const shotBy = ai.hurtBy === e && g.time - ai.hurtT < 0.5;
     // far away a player is a few pixels: only noticed close to where you're looking
@@ -80,6 +80,7 @@ function sense(a, g) {
     if (!vis) continue;
     const m = ai.mem.get(e) || {};
     const fresh = g.time - (m.seenT ?? -99) > 4;
+    ai.infoT = g.time;
     m.x = e.pos.x; m.y = e.pos.y; m.z = e.pos.z; m.t = m.seenT = g.time; m.seen = true;
     ai.mem.set(e, m);
     brain?.spotted(a, e, fresh);
@@ -124,6 +125,8 @@ function acquire(a, g, e) {
   const heard = ai.heard && g.time - ai.heard.t < 3 && Math.hypot(ai.heard.x - e.pos.x, ai.heard.z - e.pos.z) < 7;
   let react = rand(D.reaction[0], D.reaction[1]) + D.reactAngle * theta;
   if (pre || heard) react *= 0.8;
+  // holding an angle through a long quiet spell dulls you: the peeker picks the moment, the holder doesn't
+  else if (ai.order?.type === 'hold' && ai.arrived) react *= 1 + Math.min(0.3, Math.max(0, g.time - (ai.infoT ?? 0) - 5) / 35);
   if (again) react *= 0.45;
   if (a.blindT > 0) react += a.blindT * 0.6;
   ai.reactT = react;
@@ -148,6 +151,7 @@ export function hearNoise(b, g, src, kind, radius, pos) {
   const err = d * (open ? 0.03 : 0.08);                   // you can tell the direction better than the distance
   const hx = pos.x + (Math.random() - 0.5) * 2 * err, hz = pos.z + (Math.random() - 0.5) * 2 * err;
   ai.heard = { x: hx, y: pos.y || 0, z: hz, t: g.time, kind, d };
+  if (d < 35) ai.infoT = g.time;
   // a grenade bouncing or going off tells you where the grenade is, not where its thrower stands
   if (src && !NADE_SOUND.has(kind)) {
     const m = ai.mem.get(src) || {};
@@ -171,14 +175,14 @@ export function botsSeeThrow(g, d) {
     const mate = b.team === d.agent.team;
     if (d.type === 'flash') {
       if (dist > 26 || !W.hasLOS(b.pos.x, b.eyeY, b.pos.z, P.x, P.y, P.z, false)) continue;
-      let p = mate ? 0.85 : 0;
+      let p = mate ? 0.95 : 0;
       if (!mate) {
         // does it see the grenade coming? (in view now)
         const dx = d.pos.x - b.pos.x, dz = d.pos.z - b.pos.z, dd = Math.hypot(dx, dz) || 1;
         const inView = (dx * -Math.sin(b.yaw) + dz * -Math.cos(b.yaw)) / dd > Math.cos(ai.D.fov * 0.5 * DEG);
         if (inView && W.hasLOS(b.pos.x, b.eyeY, b.pos.z, d.pos.x, d.pos.y, d.pos.z)) p = ai.D.dodgeFlash;
       }
-      if (Math.random() < p) ai.flash = { x: P.x, y: P.y, z: P.z, from: at - 0.4, to: at + 0.2 };
+      if (Math.random() < p) ai.flash = { x: P.x, y: P.y, z: P.z, from: at - (mate ? 0.55 : 0.35), to: at + 0.2 };
     } else if ((d.type === 'molotov' && dist < 5.5) || (d.type === 'he' && dist < 5 && !mate)) {
       ai.avoid = { x: P.x, z: P.z, r: d.type === 'molotov' ? 5.5 : 5, until: at + (d.type === 'molotov' ? 0.6 : 0) };
     }
@@ -457,7 +461,7 @@ function throwNade(a, g, dt, cmd) {
         // nudge the lineup for where we really stand; from further off, solve it again
         const planned = sol;
         sol = (sol && off < 0.4 && solveThrow(n.type, here, n.target, { mode: n.mode || 'ground', seed: sol, tol: 2 })) ||
-              solveThrow(n.type, here, n.target, { mode: n.mode || 'ground', tol: n.mode === 'air' ? 2.2 : 3, powers: sol ? [sol.power, 1, 0.65] : [1, 0.65] }) ||
+              solveThrow(n.type, here, n.target, { mode: n.mode || 'ground', tol: n.mode === 'air' ? 3.2 : 3, powers: sol ? [sol.power, 1, 0.65, 0.35] : [1, 0.65, 0.35] }) ||
               (off < 1 ? planned : null);
       }
       if (!sol) return done(false, 'nosol');

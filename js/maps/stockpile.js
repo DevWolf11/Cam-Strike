@@ -91,7 +91,10 @@ export default function stockpile() {
   m.model('barrel_blue', 58.5, 28.5).model('barrel_steel', 59.4, 28.6);
   m.model('shelves', 72.5, 9.3).model('shelves', 73.7, 9.3).model('tool_chest', 75.5, 9.3, { solid: false });
   m.floor(70, 31, 88, 49, 0, MAT.GROUND);
-  m.model('jersey_barrier', 78, 42.5).model('jersey_barrier', 79.6, 42.5);
+  // two containers staggered across CT mid: no straight sightline from spawn to spawn
+  container(70, 36, 81, 37, BLUE);
+  container(77, 43, 88, 44, RED);
+  m.model('jersey_barrier', 74, 42.5).model('jersey_barrier', 75.6, 42.5);
 
   // =====================================================================
   // MID
@@ -174,7 +177,7 @@ export default function stockpile() {
       { site: 'B', pos: P(25, 20), watch: P(24, 55) },
       { site: 'B', pos: P(44, 38), watch: P(42, 54) },
       { site: 'B', pos: P(12, 14), watch: P(24, 52) },
-      { site: 'MID', pos: P(79, 36), watch: P(80, 80) },
+      { site: 'MID', pos: P(85, 35), watch: P(80, 80) },
     ],
     tRoutes: { A: [P(128, 100), P(105, 96)], B: [P(24, 95), P(55, 68)] },
     plantSpots: { A: [P(122, 38), P(135, 30), P(115, 20)], B: [P(28, 36), P(38, 18), P(22, 42)] },

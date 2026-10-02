@@ -602,7 +602,10 @@ function analyze(def) {
     let sum = 0, n = 0;
     for (let s = L * 0.25; s < L - 6; s += 4) {
       const p = routePoint(r, s);
-      for (const h of allHolds) if (Math.hypot(h.x - p.x, h.z - p.z) < 55 && clearLine(h.x, h.y + EYE, h.z, p.x, p.y + CHEST, p.z)) sum++;
+      for (const h of allHolds) {
+        const d = Math.hypot(h.x - p.x, h.z - p.z);
+        if (d < 80 && clearLine(h.x, h.y + EYE, h.z, p.x, p.y + CHEST, p.z)) sum += d < 40 ? 1 : 0.6;
+      }
       n++;
     }
     r.danger = n ? sum / n : 0;
@@ -647,7 +650,7 @@ export function solveThrow(type, from, target, { mode = 'ground', tol = 1.5, eye
   const yaw0 = Math.atan2(-(tx - ex), -(tz - ez));
   const err = (r) => {
     if (!r) return 1e9;
-    if (mode === 'air') return Math.hypot(r.x - tx, r.y - ty, r.z - tz);
+    if (mode === 'air') return Math.hypot(r.x - tx, (r.y - ty) * 2, r.z - tz);
     const i = cellAt(r.x, r.z), fl = i >= 0 ? G.height[i] : 0;
     return Math.hypot(r.x - tx, r.z - tz) + (Math.abs(fl - ty) > 0.6 ? 6 + Math.abs(fl - ty) : 0);
   };
@@ -846,11 +849,35 @@ export function* routeUtilityJob(nav, route) {
     return null;
   };
   for (const t of targets) { const r = yield* solveFrom('smoke', t, 'ground', 1.6); if (r) util.smokes.push(r); }
-  for (const [d, h] of [[4, 2.6], [3, 2], [6, 2.4], [2.5, 1.7]]) {
-    const fx = m.x + m.dir.x * d, fz = m.z + m.dir.z * d, fi = cellAt(fx, fz), roof = fi >= 0 ? world.roof[fi] : 0;
+  // pop flash: somewhere past the mouth that the CTs holding it can see and the waiting Ts can't
+  const waitPts = [st, ...st.slots.slice(1, 4).map((q) => ({ x: q.x, z: q.z, y: floorAt(q.x, q.z) })), routePoint(route, Lm - 10)];
+  const fc = [];
+  const fHolds = topHolds(m, 8);
+  // how long a CT at h watching the mouth would be blinded by a flash at (x, y, z) (grenades.js rules)
+  const blindAt = (h, x, y, z) => {
+    const ex = h.x, ey = h.y + EYE, ez = h.z, d = Math.hypot(ex - x, ey - y, ez - z);
+    if (d > 26 || !clearLine(x, y + 0.1, z, ex, ey, ez)) return 0;
+    const lx = m.x - ex, ly = m.y + HEAD - ey, lz = m.z - ez, ll = Math.hypot(lx, ly, lz) || 1;
+    const dot = ((x - ex) * lx + (y - ey) * ly + (z - ez) * lz) / ((d || 1) * ll);
+    return 4.2 * (dot > 0.5 ? 1 : dot > 0 ? 0.6 : 0.25) * (1 - d / 26 * 0.6);
+  };
+  const pts = [];
+  for (const d of [2.5, 4, 6, 8]) for (const side of [0, -2, 2]) pts.push([m.x + m.dir.x * d - m.dir.z * side, m.z + m.dir.z * d + m.dir.x * side]);
+  // out towards where they hold from, so it pops in front of their faces
+  for (const h of fHolds.slice(0, 5)) for (const f of [0.35, 0.55, 0.75]) pts.push([m.x + (h.x - m.x) * f, m.z + (h.z - m.z) * f]);
+  for (const [fx, fz] of pts) for (const hh of [1.8, 2.6, 3.4]) {
+    const fi = cellAt(fx, fz);
     if (fi < 0 || G.solid[fi]) continue;
-    const fy = roof > 0 ? Math.min(m.y + h, roof - 0.5) : m.y + h;
-    util.flash = yield* solveFrom('flash', { x: fx, y: Math.max(m.y + 1.5, fy), z: fz }, 'air', 1.8);
+    const roof = world.roof[fi], fy = roof > 0 ? Math.min(G.height[fi] + hh, roof - 0.5) : G.height[fi] + hh;
+    if (fy < G.height[fi] + 1.4) continue;
+    let blind = 0, own = 0;
+    for (const h of fHolds) blind += Math.min(3, blindAt(h, fx, fy, fz));
+    for (const w of waitPts) if (clearLine(w.x, w.y + EYE, w.z, fx, fy, fz)) own++;
+    if (blind > 1) fc.push({ x: fx, y: fy, z: fz, score: blind - own * 2 });
+  }
+  fc.sort((p, q) => q.score - p.score);
+  for (const c of fc.slice(0, 4)) {
+    util.flash = yield* solveFrom('flash', c, 'air', 1.8);
     if (util.flash) break;
   }
   // no clean pop spot (low ceilings): bounce it in, it goes off on the floor just past the door

@@ -66,9 +66,12 @@ export default function sirocco() {
   m.model('barrel_steel', 84.5, 118.5).model('barrel_red', 84.5, 119.4).model('cement_bag', 71.6, 112.5, { solid: false, rot: 1.4 });
   m.model('tyre', 85.2, 101.3, { solid: false, rot: 1.2 });
   m.prop('awning', 78, 108.3, { w: 8, d: 1.8, y: 3.3, color: 0x2f6d8a });
-  // mid doors to CT mid
+  // mid doors to CT mid: two gates, each with one leaf shut on opposite sides, so there's no straight
+  // sightline from spawn to spawn (you weave through, and the mid-doors/top-mid duel is still there)
   m.floor(75, 40, 80, 51, 0, MAT.STONE);
-  m.prop('doors', 78, 45.5, { axis: 'z', span: 6, y: 0 });
+  m.prop('doors', 78, 47.5, { axis: 'z', span: 6, y: 0, shut: -1 });
+  m.prop('doors', 78, 44.5, { axis: 'z', span: 6, y: 0, shut: 1 });
+  m.block(75, 47, 77, 47, 2.95, MAT.HIDDEN).block(78, 44, 80, 44, 2.95, MAT.HIDDEN);
   m.roofed(75, 43, 80, 48, 4.6);
   m.arch(78, 51.5, 'z', 6, 6.4);
 

@@ -181,7 +181,8 @@ export class TeamBrain {
       const half = Math.ceil(bots.length / 2);
       p.groups = [{ route: r1, bots: bots.slice(0, half) }, { route: r2, bots: bots.slice(half) }];
     } else if (p.strat === 'fake') {
-      const fakers = bots.slice(0, Math.min(2, bots.length - 1));
+      // never the bomb carrier: the bomb goes with the real hit
+      const fakers = bots.filter((b) => b !== this.g.bomb.carrier).slice(0, Math.min(2, bots.length - 1));
       const fr = this.nav.sites[p.other].tRoutes[0];
       p.fake = { route: fr, bots: fakers };
       p.groups = [{ route: p.routes[0], bots: bots.filter((b) => !fakers.includes(b)) }];
@@ -329,6 +330,8 @@ export class TeamBrain {
   isCleared(s) { const t = this.cleared.get(s); return t !== undefined && this.g.time - t < 8; }
   clear(s) { this.cleared.set(s, this.g.time); }
 
+  note(text) { if (this.g.botLog) this.g.botLog.push(`${this.team} r${this.g.round} ${(this.g.rules.roundTime - this.g.timer).toFixed(0)}s ${text}`); }
+
   // ---------------------------------------------------------------- radio
   say(from, text, prio = 1, key = text) {
     const g = this.g, now = g.time;
@@ -394,7 +397,7 @@ export class TeamBrain {
     const site = this.nav.sites[r.site];
     const other = site.tRoutes.find((q) => q !== r && !(this.fed.get(q)?.n >= 2));
     if (f.n >= 2 && other) {
-      this.say(waiting[0], `They're stacked at ${m.name}, going ${other.name}`, 2);
+      this.say(waiting[0], `They're stacked at ${m.name}, going ${other.name}`, 2); this.note(`reroute ${r.name} -> ${other.name} (${waiting.map((a) => a.name).join(',')})`);
       gr.route = other;
       waiting.forEach((a, k) => this.stageOn(a, other, k));
       this.phase = 'setup';
@@ -501,6 +504,7 @@ export class TeamBrain {
     let best = null, bd = Infinity;
     for (const a of this.aliveBots()) { const d = dist(a.pos, b.pos); if (d < bd) { bd = d; best = a; } }
     if (best && best.ai.order?.type !== 'pickup') {
+      this.note(`pickup by ${best.name} at ${b.pos.x.toFixed(0)},${b.pos.z.toFixed(0)} (${bd.toFixed(0)} m)`);
       setOrder(best, { type: 'pickup', pos: b.pos, pace: 'run', then: best.ai.order });
       if (bd > 6) this.say(best, "I'll get the bomb", 1);
     }
@@ -510,8 +514,20 @@ export class TeamBrain {
   thinkT_() {
     const g = this.g, p = this.plan, b = g.bomb, left = g.timer;
     if (b.state === 'planted') { if (this.phase !== 'post') this.startPost(); return this.thinkPost(); }
-    // whoever picked up a dropped bomb carries on with the plant
-    for (const a of this.aliveBots()) if (b.carrier === a && a.ai.order?.type === 'pickup') this.entryOrder(a, p.routes?.[0] || a.ai.route, 0);
+    // whoever has the bomb (picked up on purpose or walked over it) carries on with the plan
+    const c = b.carrier;
+    if (c?.isBot && c.alive && !c.ai.nade) {
+      const o = c.ai.order, main = p.groups?.[0]?.route || p.routes?.[0];
+      if (this.phase === 'entry' && o?.type !== 'plant' && !c.ai.target) this.entryOrder(c, main || c.ai.route, 0);
+      else if (this.phase === 'setup' && main && (o?.type === 'pickup' || (c.ai.route && c.ai.route.site !== main.site))) {
+        // a lurker or faker picked it up: bring it to the main group
+        const gr = p.groups?.[0];
+        if (gr && !gr.bots.includes(c)) gr.bots.push(c);
+        if (p.fake) p.fake.bots = p.fake.bots.filter((q) => q !== c);
+        if (p.lurker === c) p.lurker = null;
+        this.stageOn(c, main, 0);
+      }
+    }
     // a default reads the map, then picks the emptier site
     if (p.strat === 'default' && !p.decided && left <= p.decideAt) {
       p.decided = true;
@@ -541,7 +557,7 @@ export class TeamBrain {
       const staged = p.groups.every((gr) => { const al = gr.bots.filter((a) => a.alive); return al.filter(inPlace).length >= Math.max(1, al.length - 1); });
       const go = (left <= p.execAt && staged) || (staged && left <= p.execAt + 12 && Math.random() < 0.1) || left <= p.execAt - 12 || left < 30 || p.strat === 'rush';
       if (go && (p.decided || p.strat !== 'default')) {
-        this.phase = 'exec'; this.execT = g.time;
+        this.phase = 'exec'; this.execT = g.time; this.note(`exec ${p.strat} ${p.site} via ${p.groups.map((q) => q.route.name).join('+')}`);
         let anyUtil = false, walk = 0;
         for (const gr of p.groups) {
           const al = gr.bots.filter((a) => a.alive);
@@ -559,7 +575,7 @@ export class TeamBrain {
     const throwing = this.aliveBots().some((a) => a.ai.nade && a.ai.nade.phase !== 'release');
     const closing = this.aliveBots().some((a) => a.ai.order?.push && !a.ai.arrived);
     if (this.phase === 'exec' && g.time >= this.entryAt && ((!throwing && !closing) || g.time >= this.entryMax)) {
-      this.phase = 'entry';
+      this.phase = 'entry'; this.note('entry');
       for (const gr of p.groups) {
         const bots = gr.bots.filter((a) => a.alive && !a.ai.nade);
         // the bomb goes in behind the first player, not first
@@ -567,6 +583,8 @@ export class TeamBrain {
         bots.forEach((a, k) => { a.ai.waitT = k === 0 ? 0 : (k === 1 ? rand(0.05, 0.2) : (k - 0.6) * rand(0.3, 0.55)); this.entryOrder(a, gr.route, k); });
       }
       if (p.lurker?.alive && left < 40) this.entryOrder(p.lurker, p.routes[0], 4);
+      // the fakers come over and join the hit
+      if (p.fake) for (const a of p.fake.bots) if (a.alive) { a.ai.waitT = rand(0, 1.5); this.entryOrder(a, p.routes[0], 3); }
     }
     // after holding back at a camped door: go again, two at a time
     if (this.regroup && g.time >= this.regroup.until) {
@@ -633,19 +651,24 @@ export class TeamBrain {
   }
 
   startPost() {
-    const g = this.g, b = g.bomb;
+    const g = this.g, b = g.bomb, site = this.nav.sites[b.site];
     this.phase = 'post';
-    const spots = watchSpots(this.nav, b.site, { x: b.pos.x, y: b.pos.y, z: b.pos.z }, 6);
+    // a wide pool, picked from at random: the retake can't pre-aim every one of them
+    const pool = watchSpots(this.nav, b.site, { x: b.pos.x, y: b.pos.y, z: b.pos.z }, 12);
+    const spots = shuffle(pool.slice(0, 9)).sort((p, q) => q.score + Math.random() * 1.5 - p.score);
     this.post = spots;
+    const entries = (site?.ctRoutes || []).map((r) => ({ x: r.mouth.x, y: r.mouth.y + 1.6, z: r.mouth.z }));
     const bots = this.aliveBots().sort((x, y) => dist(x.pos, b.pos) - dist(y.pos, b.pos));
     const used = new Set();
     for (const a of bots) {
       let best = null, bd = Infinity;
-      spots.forEach((s, i) => { if (used.has(i)) return; const d = dist(a.pos, s); if (d < bd) { bd = d; best = i; } });
+      spots.forEach((s, i) => { if (used.has(i)) return; const d = dist(a.pos, s) + i * 3; if (d < bd) { bd = d; best = i; } });
       if (best === null) { setOrder(a, { type: 'hold', pos: { x: a.pos.x, z: a.pos.z }, look: { x: b.pos.x, y: b.pos.y + 1.2, z: b.pos.z } }); continue; }
       used.add(best);
       const s = spots[best];
-      setOrder(a, { type: 'hold', pos: { x: s.x, z: s.z }, look: s.look, pace: 'run', coverPt: s.coverPt, post: true });
+      // watch the bomb, and the way the CTs come in if it's in view from there
+      const ent = entries.find((e) => W.hasLOS(s.x, s.y + 1.62, s.z, e.x, e.y, e.z, false) && dist(s, e) < 45);
+      setOrder(a, { type: 'hold', pos: { x: s.x, z: s.z }, look: s.look, looks: ent ? [s.look, ent] : null, pace: 'run', coverPt: s.coverPt, post: true });
     }
     this.say(bots[0] || this.members()[0], `Bomb down ${b.site}, play the post-plant`, 2);
   }
@@ -657,8 +680,10 @@ export class TeamBrain {
       this.postPeek = true;
       for (const a of this.aliveBots()) {
         const type = a.nades.molotov > 0 ? 'molotov' : a.nades.he > 0 ? 'he' : null;
-        if (type && dist(a.pos, b.pos) < 30) a.ai.nade = { type, target: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, mode: 'ground', deadline: 3 };
-        else if (a.ai.order?.post) setOrder(a, { type: 'go', pos: { x: b.pos.x, z: b.pos.z }, pace: 'run', preaim: [{ x: b.pos.x, y: b.pos.y, z: b.pos.z }], urgent: true });
+        const sees = W.hasLOS(a.pos.x, a.eyeY, a.pos.z, b.pos.x, b.pos.y + 1, b.pos.z);
+        if (type && dist(a.pos, b.pos) < 30 && !a.ai.target) a.ai.nade = { type, target: { x: b.pos.x, y: b.pos.y, z: b.pos.z }, mode: 'ground', deadline: 3 };
+        // can't see the bomb from here: go and stop the defuse (no time for anything else)
+        else if (a.ai.order?.post && !sees) setOrder(a, { type: 'go', pos: { x: b.pos.x, z: b.pos.z }, pace: 'run', preaim: [{ x: b.pos.x, y: b.pos.y, z: b.pos.z }], urgent: true });
       }
     }
     if (!b.defuser) this.postPeek = false;

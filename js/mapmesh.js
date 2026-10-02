@@ -199,6 +199,12 @@ export function buildMap(scene, def, quality = 'medium') {
         if (alongX) wood.wbox(0.34, 0.34, span + 0.8, p.x, y + 3.3, p.z); else wood.wbox(span + 0.8, 0.34, 0.34, p.x, y + 3.3, p.z);
         for (const sg of [-1, 1]) {
           const lw = hw - 0.12;
+          if (p.shut === sg) {
+            // this leaf is shut across its half of the doorway (the map blocks those cells)
+            if (alongX) door.wbox(0.07, 2.9, lw, p.x, y + 1.5, p.z + sg * (lw / 2 + 0.06), p.color ?? 0xffffff);
+            else door.wbox(lw, 2.9, 0.07, p.x + sg * (lw / 2 + 0.06), y + 1.5, p.z, p.color ?? 0xffffff);
+            continue;
+          }
           if (alongX) door.wbox(lw, 2.9, 0.07, p.x + lw / 2 + 0.18, y + 1.5, p.z + sg * (hw - 0.1), p.color ?? 0xffffff);
           else door.wbox(0.07, 2.9, lw, p.x + sg * (hw - 0.1), y + 1.5, p.z + lw / 2 + 0.18, p.color ?? 0xffffff);
         }
