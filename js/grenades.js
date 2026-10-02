@@ -1,6 +1,7 @@
 import * as THREE from '../lib/three.module.min.js';
 import { GRENADES } from './config.js';
 import { world, pointBlocked, hasLOS, groundAt } from './world.js';
+import { launch, stepNade } from './nadephys.js';
 import { grenadeObject } from './weapons3d.js';
 import { glowTex } from './particles.js';
 import * as SFX from './audio.js';
@@ -19,17 +20,23 @@ export class Grenades {
     this.fires = [];
     this.glowTex = glowTex();
     this.visualOnly = false;      // network clients only draw; the host decides damage
+    this.onBounce = (n) => {
+      const v = n.vel.length();
+      if (v > 1.2 && n.t - n.bounceT > 0.06) {
+        n.bounceT = n.t; const s = this.g.soundFrom(n.pos, 0); SFX.nadeBounce(s.dist, s.pan, v, s.occl);
+        if (!this.visualOnly) this.g.noise(n.owner, 12, 'bounce', n.pos);
+      }
+      n.spin.multiplyScalar(0.55);
+    };
   }
 
   // Launch from an agent's eye along yaw/pitch. power 0..1 (short lob vs long throw)
   throw(a, type, power = 1) {
-    const dir = new THREE.Vector3(-Math.sin(a.yaw) * Math.cos(a.pitch), Math.sin(a.pitch), -Math.cos(a.yaw) * Math.cos(a.pitch));
-    const speed = 9 + 15 * power;           // up to 24 m/s: a full throw carries ~35m
-    const pos = new THREE.Vector3(a.pos.x, a.eyeY - 0.1, a.pos.z).addScaledVector(dir, 0.4);
-    const vel = dir.multiplyScalar(speed).add(new THREE.Vector3(a.vx * 0.5, 2.0, a.vz * 0.5));
+    const { pos, vel } = launch(a.pos.x, a.eyeY, a.pos.z, a.yaw, a.pitch, power, a.vx, a.vz, { pos: new THREE.Vector3(), vel: new THREE.Vector3() });
     const mesh = grenadeObject(type);
     mesh.position.copy(pos); this.scene.add(mesh);
     this.flying.push({ type, pos, vel, t: 0, owner: a, mesh, still: 0, spin: new THREE.Vector3(8 + Math.random() * 4, (Math.random() - 0.5) * 6, 5 + Math.random() * 3), bounceT: 0 });
+    this.g.emit('nadeThrown', { agent: a, type, pos, vel });
     const s = a === this.g.player ? null : this.g.soundFrom(a.pos, 1.4);
     if (!s || s.dist < 12) SFX.throwWhoosh(s);
     a.nades[type]--;
@@ -39,30 +46,10 @@ export class Grenades {
     // --- projectiles ---
     for (let i = this.flying.length - 1; i >= 0; i--) {
       const n = this.flying[i], def = GRENADES[n.type];
-      n.t += dt;
-      const sub = 3, h = dt / sub;
-      for (let s = 0; s < sub; s++) {
-        n.vel.y -= 16 * h;
-        const nx = n.pos.x + n.vel.x * h, ny = n.pos.y + n.vel.y * h, nz = n.pos.z + n.vel.z * h;
-        if (!pointBlocked(nx, ny, nz)) { n.pos.set(nx, ny, nz); continue; }
-        // find which axis we hit and bounce off it
-        let bounced = false;
-        if (pointBlocked(nx, n.pos.y, n.pos.z)) { n.vel.x *= -0.45; bounced = true; }
-        if (pointBlocked(n.pos.x, n.pos.y, nz)) { n.vel.z *= -0.45; bounced = true; }
-        if (pointBlocked(n.pos.x, ny, n.pos.z)) {
-          const floorHit = n.vel.y < 0;
-          n.vel.y *= -0.35; n.vel.x *= 0.7; n.vel.z *= 0.7; bounced = true;
-          if (floorHit && n.type === 'molotov') { n.t = 99; break; }
-        }
-        if (!bounced) { n.vel.multiplyScalar(-0.3); }
-        const v = n.vel.length();
-        if (v > 1.2 && n.t - n.bounceT > 0.06) { n.bounceT = n.t; const s = this.g.soundFrom(n.pos, 0); SFX.nadeBounce(s.dist, s.pan, v, s.occl); }
-        n.spin.multiplyScalar(0.55);
-      }
+      const onGround = stepNade(n, dt, this.onBounce);
       n.mesh.position.copy(n.pos);
       // tumbles in the air, rolls to a stop on the ground
-      const onGround = Math.abs(n.vel.y) < 0.4 && pointBlocked(n.pos.x, n.pos.y - 0.08, n.pos.z);
-      if (onGround) { n.spin.multiplyScalar(Math.max(0, 1 - dt * 6)); n.vel.x *= Math.max(0, 1 - dt * 2.5); n.vel.z *= Math.max(0, 1 - dt * 2.5); }
+      if (onGround) n.spin.multiplyScalar(Math.max(0, 1 - dt * 6));
       n.mesh.rotation.x += dt * n.spin.x; n.mesh.rotation.y += dt * n.spin.y; n.mesh.rotation.z += dt * n.spin.z;
       // a molotov's rag burns in flight: small flames shed from the neck trail behind it
       if (n.type === 'molotov' && (n.fl = (n.fl || 0) - dt) <= 0) {
@@ -108,7 +95,7 @@ export class Grenades {
       while (f.acc >= 1) {
         f.acc--;
         const a = Math.random() * 6.283, rr = Math.sqrt(Math.random()) * spread, x = f.x + Math.cos(a) * rr, z = f.z + Math.sin(a) * rr;
-        const gy = groundAt(x, z, f.y + 0.4);
+        const gy = groundAt(x, z);
         if (Math.abs(gy - f.y) > 0.6 || pointBlocked(x, gy + 0.2, z)) continue;
         const edge = 1 - 0.5 * rr / f.r, low = Math.random() < 0.35, w = (low ? 0.9 + Math.random() * 0.5 : 0.5 + Math.random() * 0.55) * edge;
         // tall tongues plus low, wide ones that make a burning carpet between them
@@ -171,9 +158,9 @@ export class Grenades {
         a.blindT = Math.max(a.blindT || 0, t);
         if (a === g.player) SFX.ringing(t);
         if (a.human) g.emit('flashed', { agent: a, t });
-        if (n.owner && n.owner !== a && a.team !== n.owner.team && a.isBot) a.ai.heard = { x: n.owner.pos.x, z: n.owner.pos.z, t: g.time };
       }
     }
+    g.noise(n.owner, { he: 50, flash: 35, smoke: 25, molotov: 25 }[n.type], n.type, P);
     const fx = this.fx(n.type, P.x, P.y, P.z, n.owner);
     g.emit('fxDetonate', { type: n.type, x: P.x, y: P.y, z: P.z, owner: n.owner });
     return fx;
@@ -191,13 +178,13 @@ export class Grenades {
       SFX.flashBang(snd.dist, snd.pan, snd.occl);
     } else if (type === 'smoke') {
       SFX.smokePop(snd.dist, snd.pan, snd.occl);
-      const gy = groundAt(P.x, P.z, P.y + 0.3);
+      const gy = groundAt(P.x, P.z);
       const w = { x: P.x, y: gy + 1.5, z: P.z, r: 0 };
       world.smokes.push(w);
       this.smokes.push({ x: P.x, y: gy, z: P.z, t: 0, dur: GRENADES.smoke.duration, n: 0, w });
     } else if (type === 'molotov') {
       SFX.fireWhoosh(snd.dist, snd.pan, snd.occl);
-      const gy = groundAt(P.x, P.z, P.y + 0.3), r = GRENADES.molotov.radius;
+      const gy = groundAt(P.x, P.z), r = GRENADES.molotov.radius;
       g.effects.decal(3, _lp.set(P.x, gy, P.z), _up, r * 1.7);
       // splash of burning fuel
       for (let k = 0; k < 10; k++) {

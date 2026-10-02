@@ -31,7 +31,6 @@ export class ClientGame extends Game {
   startRound() {
     this.phase = 'freeze'; this.timer = this.rules.freezeTime;
     this.bomb = { state: 'none', carrier: null, pos: new THREE.Vector3(), site: null, timer: 0, plantP: 0, planter: null, defuseP: 0, defuser: null, beepT: 0 };
-    this.tPlan = { site: 'A', executeAt: 0 }; this.intel = { hot: null, hotT: -99 };
   }
   noise() {}
   endRound() {}
@@ -252,6 +251,7 @@ export class ClientGame extends Game {
         break;
       }
       case 'm': this.emit('msg', { text: e.text, big: e.big, warn: e.warn, team: e.team }); break;
+      case 'ra': this.emit('radio', { team: e.team, from: A(e.from), text: e.text }); break;
       case 'hu': if (e.nid === p.nid) { SFX.hurt(); this.emit('hurt', { agent: p, from: A(e.from), dmg: e.dmg }); } break;
       case 'sh':
         if (e.hit && !e.team) e.head ? SFX.headshot() : SFX.hitmarker();

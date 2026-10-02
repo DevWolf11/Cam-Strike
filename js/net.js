@@ -141,6 +141,7 @@ export class NetHost {
       case 'live': all({ e: 'live' }); break;
       case 'roundEnd': all({ e: 're', winner: d.winner, reason: d.reason }); break;
       case 'kill': all({ e: 'k', killer: N(d.killer), victim: N(d.victim), weapon: d.weapon, head: !!d.head, tk: !!d.teamkill, imp: d.impulse }); break;
+      case 'radio': for (const a of g.agents) if (a.team === d.team) to(a, { e: 'ra', team: d.team, from: N(d.from), text: d.text }); break;
       case 'msg': if (d.to) to(d.to, { e: 'm', text: d.text, big: d.big, warn: d.warn, team: d.team }); else all({ e: 'm', text: d.text, big: d.big, warn: d.warn, team: d.team }); break;
       case 'hurt': to(d.agent, { e: 'hu', nid: d.agent.nid, from: N(d.from), dmg: d.dmg }); break;
       case 'shot': if (d.hit) to(d.agent, { e: 'sh', hit: d.hit, head: d.head, team: d.team }); break;

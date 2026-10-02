@@ -140,10 +140,46 @@ export function smokeBlocks(ax, ay, az, bx, by, bz) {
 }
 
 export function hasLOS(ax, ay, az, bx, by, bz, smoke = true) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, d = Math.hypot(dx, dy, dz);
-  if (d < 0.01) return true;
-  if (raycast(ax, ay, az, dx / d, dy / d, dz / d, d).dist < d - 0.05) return false;
+  if (Math.hypot(bx - ax, by - ay, bz - az) < 0.01) return true;
+  if (!clearLine(ax, ay, az, bx, by, bz)) return false;
   return !(smoke && smokeBlocks(ax, ay, az, bx, by, bz));
+}
+
+// Is the segment a->b free of static geometry? Same rules as raycast (a hit within 5 cm of b doesn't
+// count, as in hasLOS), but allocation-free with an early out: bots and the map analysis call it a lot.
+export function clearLine(ax, ay, az, bx, by, bz) {
+  const ex = bx - ax, ey = by - ay, ez = bz - az, d = Math.hypot(ex, ey, ez);
+  if (d < 0.01) return true;
+  const dx = ex / d, dy = ey / d, dz = ez / d, lim = d - 0.05;
+  if (dy < -1e-6 && -ay / dy < lim) return false;
+  const W = world.w, H = world.h, solid = world.solid, height = world.height, roof = world.roof;
+  let cx = Math.floor(ax), cz = Math.floor(az);
+  const stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+  const adx = Math.abs(dx), adz = Math.abs(dz);
+  const tDX = adx < 1e-9 ? Infinity : CELL / adx, tDZ = adz < 1e-9 ? Infinity : CELL / adz;
+  let tMX = adx < 1e-9 ? Infinity : (dx > 0 ? (cx + 1) * CELL - ax : ax - cx * CELL) / adx;
+  let tMZ = adz < 1e-9 ? Infinity : (dz > 0 ? (cz + 1) * CELL - az : az - cz * CELL) / adz;
+  let t = 0;
+  for (let guard = 0; guard < 2000 && t < lim; guard++) {
+    if (cx < 0 || cz < 0 || cx >= W || cz >= H) return false;
+    const i = cz * W + cx;
+    if (solid[i] === 1) { if (t > 0) return false; }
+    else {
+      const tExit = Math.min(tMX, tMZ, lim), yIn = ay + dy * t, yOut = ay + dy * tExit;
+      const h = height[i];
+      if (h > 0) {
+        if (yIn < h - 1e-4 && t > 0) return false;
+        if (yOut < h && dy < 0 && Math.max(t, (h - ay) / dy) < lim) return false;
+      }
+      const rf = roof[i];
+      if (rf > 0) {
+        if (yIn > rf + 1e-4 && t > 0) return false;
+        if (yOut > rf && dy > 0 && Math.max(t, (rf - ay) / dy) < lim) return false;
+      }
+    }
+    if (tMX < tMZ) { t = tMX; tMX += tDX; cx += stepX; } else { t = tMZ; tMZ += tDZ; cz += stepZ; }
+  }
+  return true;
 }
 
 // ---------- Navigation ----------
@@ -164,6 +200,7 @@ const canStep = (fromH, x, z) => !isWall(x, z) && Math.abs(world.height[idx(x, z
 // Directed: climbing is limited by STEP, dropping by DROP
 const canMove = (fromH, x, z) => { if (isWall(x, z)) return false; const d = world.height[idx(x, z)] - fromH; return d <= STEP && d >= -DROP; };
 export const walkableCell = (x, z) => !isWall(x, z);
+export const navCostAt = (i) => navCost[i];
 // A cell you'd spawn or stand around on (not the top of a crate/container/prop)
 const OBSTACLE = new Set([MAT.CRATE, MAT.CONTAINER, MAT.HIDDEN, MAT.LOWWALL]);
 export const openCell = (x, z) => !isWall(x, z) && !OBSTACLE.has(world.map.mat[idx(x, z)]) && navCost[idx(x, z)] === 0;

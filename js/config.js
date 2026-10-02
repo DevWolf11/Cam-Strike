@@ -111,10 +111,31 @@ export const MAX_NADES = 4;
 export const WEAPON_ORDER = ['pistol', 'smg', 'shotgun', 'rifle', 'sniper'];
 export const PRIMARIES = ['smg', 'shotgun', 'rifle', 'sniper'];
 
+// Bot skill. Bots aim like players rather than having their accuracy turned down:
+//   reaction    seconds before reacting to an enemy that appears, plus reactAngle per radian of flick
+//   flick       aim error left after a flick, as a fraction of the flick angle; it shrinks with time constant
+//               settle down to tremor (radians): pre-aimed angles are fast and accurate, wide flicks are not
+//   trackLag    how far (seconds) the aim trails a strafing target; turnRate caps how fast the view turns (rad/s)
+//   recoilComp  share of the recoil pulled down; headPct chance to go for the head; trigger how far off the
+//               target (in target radii) they'll still shoot; discipline chance to stop before shooting
+//   hearing     scales how far sounds carry for them; preaim chance to have the crosshair on the right corner
+//   util        chance to use planned utility; utilAcc aim noise on throws; dodgeFlash chance to look away
 export const DIFFICULTY = {
-  easy:   { reaction: [0.55, 0.9],  aimError: 0.09,  turnRate: 3.2, burst: [2, 4], fov: 100, nadeChance: 0.3 },
-  normal: { reaction: [0.32, 0.6],  aimError: 0.055, turnRate: 5.0, burst: [3, 6], fov: 115, nadeChance: 0.6 },
-  hard:   { reaction: [0.18, 0.35], aimError: 0.03,  turnRate: 8.0, burst: [4, 9], fov: 130, nadeChance: 0.85 },
+  easy: {
+    reaction: [0.4, 0.65], reactAngle: 0.22, flick: 0.14, settle: 0.4, tremor: 0.01, trackLag: 0.2, turnRate: 4.5,
+    recoilComp: 0.35, headPct: 0.15, trigger: 1.7, discipline: 0.45, fov: 100, hearing: 0.7, preaim: 0.4,
+    util: 0.45, utilAcc: 0.05, dodgeFlash: 0.05, trade: 0.45,
+  },
+  normal: {
+    reaction: [0.27, 0.43], reactAngle: 0.16, flick: 0.09, settle: 0.26, tremor: 0.006, trackLag: 0.14, turnRate: 6.5,
+    recoilComp: 0.65, headPct: 0.32, trigger: 1.35, discipline: 0.75, fov: 110, hearing: 0.9, preaim: 0.7,
+    util: 0.75, utilAcc: 0.025, dodgeFlash: 0.25, trade: 0.7,
+  },
+  hard: {
+    reaction: [0.18, 0.28], reactAngle: 0.1, flick: 0.05, settle: 0.17, tremor: 0.0035, trackLag: 0.08, turnRate: 9,
+    recoilComp: 0.85, headPct: 0.5, trigger: 1.1, discipline: 0.95, fov: 120, hearing: 1, preaim: 0.9,
+    util: 0.95, utilAcc: 0.012, dodgeFlash: 0.5, trade: 0.9,
+  },
 };
 
 export const BOT_NAMES = {
