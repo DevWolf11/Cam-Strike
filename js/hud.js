@@ -17,7 +17,7 @@ export class HUD {
   constructor(game, ctrl, hooks) {
     this.g = game; this.ctrl = ctrl; this.hooks = hooks;
     this.el = {};
-    for (const id of ['hud', 'minimap', 'money', 'callout', 'hudLeftCol', 'scoreT', 'scoreCT', 'aliveT', 'aliveCT', 'timer', 'bombTimer', 'punish', 'killfeed', 'center-msg', 'sub-msg', 'hint', 'progress',
+    for (const id of ['hud', 'minimap', 'money', 'callout', 'radio', 'hudLeftCol', 'scoreT', 'scoreCT', 'aliveT', 'aliveCT', 'timer', 'bombTimer', 'punish', 'killfeed', 'center-msg', 'sub-msg', 'hint', 'progress',
       'crosshair', 'hitmarker', 'hp', 'armor', 'bombIcon', 'kitIcon', 'ammo', 'mag', 'reserve', 'wname', 'weapons', 'spectating', 'dmg-vignette', 'dmg-dir', 'scope', 'flashbang',
       'tags', 'btnUse', 'btnScope', 'btnBuy', 'buy', 'buyGuns', 'buyNades', 'buyGear', 'buyMoney', 'scoreboard', 'sbT', 'sbCT', 'sbRound']) this.el[id] = $(id);
     this.mm = this.el.minimap.getContext('2d');
@@ -56,6 +56,7 @@ export class HUD {
       if (p.punishedActive) sub = 'Teamkill penalty: knife only, no buying this round.';
       this.center(`Round ${d.round}${mp}`, '', sub, 4);
       this.el.killfeed.innerHTML = '';
+      this.el.radio.innerHTML = '';
     } else if (type === 'roundEnd') {
       this.center(`${TEAM_NAME[d.winner]} Win`, d.winner, d.reason, g.rules.roundEndDelay);
     } else if (type === 'kill') {
@@ -69,6 +70,16 @@ export class HUD {
       setTimeout(() => div.remove(), 7000);
       if (v === p) this.center('You died', '', k && k !== p ? `Killed by ${k.name}${k.team === p.team ? ' (teammate)' : ''} · ${ICON[d.weapon] || d.weapon}` : '', 2.5);
       else if (k === p && !d.teamkill) this.sub(`Killed ${v.name}${d.head ? ' (headshot)' : ''}  +$${WEAPONS[d.weapon]?.kill ?? 300}`, 2);
+    } else if (type === 'radio') {
+      // teammates' (bots') callouts
+      if (d.team !== p.team || !d.from) return;
+      const div = document.createElement('div');
+      div.innerHTML = `<b class="${d.team}">${esc(d.from.name)}</b>${esc(d.text)}`;
+      this.el.radio.appendChild(div);
+      while (this.el.radio.children.length > 4) this.el.radio.firstChild.remove();
+      setTimeout(() => div.classList.add('old'), 6000);
+      setTimeout(() => div.remove(), 6700);
+      SFX.radio?.();
     } else if (type === 'msg') {
       if ((d.team && d.team !== p.team) || (d.to && d.to !== p)) return;
       if (d.big) this.center(d.text, 'T', '', 2.5); else this.sub(d.text, d.warn ? 3.5 : 3, d.warn);

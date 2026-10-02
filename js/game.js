@@ -7,7 +7,8 @@ import { Agent } from './agent.js';
 import { Effects, surfKind } from './effects.js';
 import { Grenades } from './grenades.js';
 import * as SFX from './audio.js';
-import { initBotRound, updateBot, botBuy } from './bot.js';
+import { initBotRound, updateBot, hearNoise, botHurt, botsSeeThrow, HEAR } from './bot.js';
+import { TeamBrain } from './botteam.js';
 import { weaponMesh, SKINS, KNIVES, prewarmWeapons } from './weapons3d.js';
 import { OUTFITS, setRagdollPushers, ragdollBlast } from './character.js';
 
@@ -156,10 +157,14 @@ export class Game {
     };
     this.bombMesh.visible = false;
     this.planted = false;
-    this.tPlan = { site: Math.random() < 0.5 ? 'A' : 'B', executeAt: this.rules.roundTime - (12 + Math.random() * 18) };
-    this.intel = { hot: null, hotT: -99 };
-    this._holdsRound = -1;
-    for (const a of this.agents) if (a.isBot) { botBuy(a, this); initBotRound(a, this); }
+    // bots: each side's brain decides the buy and the plan, then hands out jobs
+    if (this.agents.some((a) => a.isBot)) {
+      if (!this.brains) {
+        this.brains = { T: new TeamBrain(this, 'T'), CT: new TeamBrain(this, 'CT') };
+        this.on((type, d) => { if (type === 'nadeThrown') botsSeeThrow(this, d); });
+      }
+      this.brains.T.startRound(); this.brains.CT.startRound();
+    }
     this.emit('roundStart', { round: this.round });
     SFX.roundStart();
   }
@@ -257,7 +262,7 @@ export class Game {
       if (sp > 3.2 && a.onGround) {
         if (a === this.player) SFX.step(0.05);
         else { const s = this.soundFrom(a.pos, 0.2); if (s.dist < 28) SFX.step(0.13, s.pan, s); }
-        this.noise(a, 12);
+        this.noise(a, HEAR.step, 'step');
       }
     }
   }
@@ -273,11 +278,11 @@ export class Game {
     return { dist, pan, occl };
   }
 
-  noise(a, radius) {
-    for (const b of this.agents) {
-      if (!b.isBot || !b.alive || b.team === a.team) continue;
-      if (Math.hypot(b.pos.x - a.pos.x, b.pos.z - a.pos.z) < radius) b.ai.heard = { x: a.pos.x, z: a.pos.z, t: this.time };
-    }
+  // A sound bots can hear (kind: step, shot, reload, pin, bounce, plant, defuse, ...; see bot.js HEAR).
+  // pos defaults to the agent making it; grenade sounds pass where the grenade is.
+  noise(a, radius, kind = 'misc', pos = a?.pos) {
+    if (!a || !pos) return;
+    for (const b of this.agents) if (b.isBot && b.alive && b.team !== a.team) hearNoise(b, this, a, kind, radius, pos);
   }
 
   // ---------------- Weapons ----------------
@@ -297,6 +302,7 @@ export class Game {
     if (!inv || a.reloadT > 0 || inv.mag >= w.mag || inv.reserve <= 0) return false;
     a.reloadT = w.reload; a.scoped = false;
     if (a.human) this.emit('reload', { agent: a });
+    this.noise(a, HEAR.reload, 'reload');
     return true;
   }
   finishReload(a) {
@@ -367,7 +373,7 @@ export class Game {
       SFX.gunshot(w.id, s.dist, s.pan, s.occl);
       if (s.dist < 15) SFX.afterShot(w.id, s);
     }
-    this.noise(a, 40);
+    this.noise(a, w.id === 'sniper' ? HEAR.shot * 1.4 : HEAR.shot, 'shot');
     a.spotted = Math.max(a.spotted, 1.2);
     if (inv.mag === 0 && inv.reserve > 0) a.autoReload = 0.25;
     return true;
@@ -405,7 +411,7 @@ export class Game {
       if (a.human) this.emit('shot', { agent: a, hit: true, head: backstab, team: best.team === a.team });
     }
     this.emit('fxMelee', { a });
-    this.noise(a, 6);
+    this.noise(a, HEAR.knife, 'knife');
     return true;
   }
 
@@ -417,6 +423,7 @@ export class Game {
     a.fireCd = 0.9;
     const snd = a === this.player ? null : this.soundFrom(a.pos, 1.3);
     if (!snd || snd.dist < 12) SFX.pin(snd);
+    this.noise(a, HEAR.pin, 'pin');
     return true;
   }
 
@@ -474,10 +481,7 @@ export class Game {
     if (victim === this.player) SFX.hurt();
     if (victim.human) this.emit('hurt', { agent: victim, from: attacker, dmg });
     if (ff && attacker.human) this.emit('msg', { text: `You hit teammate ${victim.name}!`, warn: true, to: attacker });
-    if (victim.isBot && attacker && attacker.team !== victim.team) {
-      victim.ai.heard = { x: attacker.pos.x, z: attacker.pos.z, t: this.time };
-      victim.ai.hurtBy = attacker;
-    }
+    if (victim.isBot && attacker && attacker.team !== victim.team) botHurt(victim, this, attacker);
     if (victim.hp <= 0) this.kill(victim, attacker, weaponId, head, impulse);
   }
 
@@ -524,7 +528,7 @@ export class Game {
     const site = this.plantSite(a);
     if (!site || !a.onGround) return false;
     const b = this.bomb;
-    if (b.planter !== a) { b.planter = a; b.plantP = 0; }
+    if (b.planter !== a) { b.planter = a; b.plantP = 0; this.noise(a, HEAR.plant, 'plant'); }
     b.plantTouched = true;
     b.plantP += dt;
     if (b.plantP >= this.rules.plantTime) {
@@ -550,7 +554,10 @@ export class Game {
   tryDefuse(a, dt) {
     if (!this.canDefuse(a) || !a.onGround) return false;
     const b = this.bomb;
-    if (b.defuser !== a) { b.defuser = a; b.defuseP = 0; if (a.team === this.player.team) this.emit('msg', { text: `${a === this.player ? 'You are' : a.name + ' is'} defusing${a.hasKit ? ' (with kit)' : ''}...` }); }
+    if (b.defuser !== a) {
+      b.defuser = a; b.defuseP = 0; this.noise(a, HEAR.defuse, 'defuse');
+      if (a.team === this.player.team) this.emit('msg', { text: `${a === this.player ? 'You are' : a.name + ' is'} defusing${a.hasKit ? ' (with kit)' : ''}...` });
+    }
     b.defuseTouched = true;
     b.defuseP += dt;
     if (b.defuseP >= (a.hasKit ? this.rules.defuseTimeKit : this.rules.defuseTime)) {
@@ -641,7 +648,8 @@ export class Game {
       if (a.spotted > 0) a.spotted -= dt;
     }
 
-    this.pathBudget = 2;
+    this.pathBudget = 3;
+    if (this.brains) { this.brains.T.update(dt); this.brains.CT.update(dt); }
     for (const a of this.agents) if (a.isBot) updateBot(a, this, dt);
     // remote players hold "use" to plant/defuse; their movement arrives via applyRemoteState
     if (this.phase !== 'freeze') for (const a of this.agents) {

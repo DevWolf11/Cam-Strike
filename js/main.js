@@ -10,6 +10,8 @@ import { initAudio } from './audio.js';
 import { MAP_LIST, getMap } from './maps/index.js';
 import { renderMinimap } from './mapmesh.js';
 import { loadMapAssets, setAnisotropy } from './mapassets.js';
+import { setMap } from './world.js';
+import { getNav } from './botnav.js';
 import { layout, applyLayout, openEditor } from './layout.js';
 import { openLoadout } from './loadout.js';
 
@@ -168,13 +170,16 @@ function matchOpts(extra = {}) {
   };
 }
 
-// Photo textures, prop models and the sky for a map, with a progress bar
-async function prepareMap(id) {
+// Photo textures, prop models and the sky for a map, with a progress bar. Where bots will play (solo or
+// hosting), the bots' map analysis runs behind the same screen.
+async function prepareMap(id, bots = true) {
   const def = getMap(id);
   $('loadName').textContent = def.name; $('loadBar').style.width = '0%';
   $('loading').classList.remove('hidden');
-  try { await loadMapAssets(def, (p) => { $('loadBar').style.width = `${Math.round(p * 100)}%`; }); }
-  finally { $('loading').classList.add('hidden'); }
+  try {
+    await loadMapAssets(def, (p) => { $('loadBar').style.width = `${Math.round(p * 100)}%`; });
+    if (bots && !def._nav) { await new Promise((r) => setTimeout(r, 30)); try { setMap(def); getNav(def); } catch (e) { console.warn('bot map analysis failed', e); } }
+  } finally { $('loading').classList.add('hidden'); }
 }
 
 async function startMatch(team) {
@@ -332,7 +337,7 @@ $('lbStart').onclick = async () => {
 async function startClientMatch(roster, opts) {
   // the host may already be playing: its events are queued by the net layer until the map is ready
   net.loading = true;
-  try { await Promise.all([loadCharacterModel(), prepareMap(opts.map)]); } catch { /* play with whatever loaded */ }
+  try { await Promise.all([loadCharacterModel(), prepareMap(opts.map, false)]); } catch { /* play with whatever loaded */ }
   if (!net) return;
   net.loading = false;
   beginMatch((sc) => new ClientGame(sc, camera, { ...opts, roster, quality: $('quality').value }, net));
